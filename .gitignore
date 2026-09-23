@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# PyInstaller
+build/
+dist/
+*.spec
+
+# Obrazy dyskietek i dyskow - wytwory pracy programu, nie zrodla.
+# Gdyby kiedys trafil tu obraz przykladowy, trzeba go dodac przez
+# "git add -f", zeby wybor byl swiadomy.
+*.img
+*.ima
+*.adf
+*.st
+*.msa
+*.d64
+*.iso
+*.scp
+
+# Raporty i plany zapisywane przez program
+raport*.txt
+plan*.txt
+
+# Srodowiska pracy
+.idea/
+.vscode/
+*.swp
+.DS_Store
