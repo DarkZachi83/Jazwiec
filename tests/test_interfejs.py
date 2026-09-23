@@ -733,9 +733,19 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
         self.assertEqual(int(widok.itemcget(mapa[1], "width")), 0)
         najdluzsza = max(len(l) for l in
                          widok.itemcget(mapa[1], "text").splitlines())
+        potrzeba = widok.szerokosc_linii(najdluzsza)
         self.assertGreaterEqual(widok.winfo_width() - 2 * widok.MARGINES,
-                                widok.szerokosc_linii(najdluzsza))
-        self.assertGreaterEqual(okno.minsize()[0], okno.winfo_reqwidth() - 1)
+                                potrzeba)
+        # Sprawdzamy zachowanie, a nie liczbe: po zwezeniu okna do jego
+        # minimum mapa nadal musi miescic sie w jednej linii. Wczesniej
+        # test porownywal minimum z biezaca szerokoscia okna, a ta rosnie
+        # po wykryciu urzadzenia - dlugi napis o modelu i firmware poszerza
+        # okno ponad minimum, wiec test padal na cudzym komputerze.
+        okno.geometry(f"{okno.minsize()[0]}x{okno.winfo_height()}")
+        self.app.update()
+        self.assertGreaterEqual(widok.winfo_width() - 2 * widok.MARGINES,
+                                potrzeba,
+                                "po zwezeniu do minimum mapa by sie zawinela")
 
     def test_zamkniecie_w_trakcie_przerywa_gw(self):
         import tkinter.filedialog as fd

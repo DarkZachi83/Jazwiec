@@ -13,7 +13,7 @@ import sys
 import textwrap
 import unittest
 
-from helpers import PrzypadekZKatalogiem
+from helpers import PrzypadekZKatalogiem, podstaw_gw
 
 import gw_samples as probki
 import gwbridge
@@ -321,15 +321,45 @@ class Tlumaczenia(unittest.TestCase):
             gwbridge.set_language("pl")
 
 
-class Zabezpieczenia(unittest.TestCase):
+class Zabezpieczenia(PrzypadekZKatalogiem):
+    """
+    Zly format albo naped musi zostac odrzucony, zanim cokolwiek ruszy
+    naped. Wczesniej ten test uzywal formatu 2880 - obslugiwanego od
+    wersji 2.15 - i przechodzil tylko tam, gdzie gw nie bylo zainstalowane.
+    Na komputerze z gw naprawde uruchamial odczyt prawdziwej dyskietki.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.argumenty = podstaw_gw(self, odczyt=probki.pelny_odczyt())
+
+    def gw_nie_ruszyl(self):
+        self.assertFalse(os.path.exists(self.argumenty),
+                         "polecenie gw nie moze zostac uruchomione")
 
     def test_nieznany_format(self):
+        """3,5" 360 KB jednostronny - gw nie ma dla niego odpowiednika."""
         with self.assertRaises(gwbridge.GwError):
-            gwbridge.read_to_image("x.img", "2880")
+            gwbridge.read_to_image(self.sciezka("x.img"), "360_35")
+        self.gw_nie_ruszyl()
 
     def test_nieznany_naped(self):
         with self.assertRaises(gwbridge.GwError):
-            gwbridge.read_to_image("x.img", "1440", drive="C")
+            gwbridge.read_to_image(self.sciezka("x.img"), "1440", drive="C")
+        self.gw_nie_ruszyl()
+
+    def test_formatowanie_amigi(self):
+        with self.assertRaises(gwbridge.GwError):
+            gwbridge.format_disk("amiga880", "A")
+        self.gw_nie_ruszyl()
+
+    def test_obraz_o_zlym_rozmiarze(self):
+        obraz = self.sciezka("maly.img")
+        with open(obraz, "wb") as fh:
+            fh.write(bytes(1000))
+        with self.assertRaises(gwbridge.GwError):
+            gwbridge.write_image(obraz, "1440")
+        self.gw_nie_ruszyl()
 
 
 @unittest.skipIf(os.name == "nt", "atrapa gw jest skryptem uniksowym")

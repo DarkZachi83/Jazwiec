@@ -20,7 +20,8 @@ Program w kształcie, w jakim trafia na GitHuba.
 - Most do Greaseweazle: zgrywanie i zapis dyskietek PC, Amigi i Atari ST,
   graficzna mapa ścieżek, mapa sektorów w raporcie oraz diagnostyka
   rozróżniająca uszkodzony nośnik, problem napędu i obcy format.
-- Zestaw 198 testów automatycznych.
+- Zestaw 200 testów automatycznych, niezależnych od obecności `gw`
+  i narzędzi systemowych.
 
 ## Historia rozwoju przed wydaniem
 
