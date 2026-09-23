@@ -15,6 +15,8 @@ import unittest
 
 from helpers import CzystyStart, PrzypadekZKatalogiem, podstaw_gw
 
+import gwbridge  # po helpers - to on dokłada katalog projektu do sciezki
+
 import languages
 
 
@@ -550,6 +552,44 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
         self.assertTrue(self.czekaj(
             lambda: nowe_okno.btn_read.cget("state") == "normal"),
             "sciezka ma byc wczytana z ustawien przy otwarciu okna")
+
+    def test_liczba_prob_z_pola(self):
+        """
+        Pole z liczba prob jest zmienna Tkintera, a odczyt idzie w watku
+        w tle. Siegniecie po nie stamtad konczy sie bledem "main thread is
+        not in main loop" i przepadnieciem calej pracy.
+        """
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        argumenty = podstaw_gw(self, odczyt=self.probki.pelny_odczyt())
+        # Po udanym odczycie okno pyta, czy otworzyc obraz. Bez podstawionej
+        # odpowiedzi test staje na oknie, ktorego nikt nie zamknie.
+        stare = fd.asksaveasfilename, mb.askyesno
+        fd.asksaveasfilename = lambda **k: self.sciezka("proby.img")
+        mb.askyesno = lambda *a, **k: False
+        self.addCleanup(lambda: setattr(fd, "asksaveasfilename", stare[0]))
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare[1]))
+
+        okno = self.otworz()
+        okno.var_retries.set("8")
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.assertIsNone(okno._wynik[1], "praca nie moze sie wywrocic")
+        with open(argumenty) as fh:
+            wywolanie = fh.read().splitlines()
+        self.assertEqual(wywolanie[wywolanie.index("--retries") + 1], "8")
+        self.assertEqual(self.app.config_data["gwretries"], 8)
+
+    def test_liczba_prob_sprowadzana_do_zakresu(self):
+        podstaw_gw(self)
+        okno = self.otworz()
+        for wpisane, oczekiwane in (("0", 1), ("999", gwbridge.MAX_RETRIES),
+                                    ("", gwbridge.DEFAULT_RETRIES),
+                                    ("piec", gwbridge.DEFAULT_RETRIES),
+                                    ("6", 6)):
+            with self.subTest(wpisane=wpisane):
+                okno.var_retries.set(wpisane)
+                self.assertEqual(okno.liczba_prob(), oczekiwane)
 
     def test_zakladki_rodzin_nosnikow(self):
         """

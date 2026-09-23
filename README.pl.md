@@ -144,11 +144,20 @@ kieruje program wprost do niego, a wybór zostaje zapamiętany. Bez tego
 polecenie potrafi działać w konsoli, a program uruchomiony z Eksploratora
 nie widzi go wcale, bo ma inny katalog roboczy.
 
+Dyskietka, która przeleżała lata w kopercie, najgorzej czyta się za pierwszym
+razem. Wykładzina wewnątrz koperty zbiera pył przy każdym obrocie, więc nośnik
+czyści się sam w trakcie czytania — dyskietka, która w pierwszym podejściu
+zgubiła 33 sektory, w drugim oddała wszystkie 1760. Dlatego raport liczy
+ścieżki wymagające powtórzeń i, gdy takie są, zaleca ponowny odczyt. Pole
+**Prób na ścieżkę** podnosi liczbę podejść, jakie `gw` wykona, zanim odpuści
+ścieżkę; z wiersza poleceń robi to `--retries`, a `--seek-retries` każe
+dodatkowo dojechać do ścieżki od nowa.
+
 Moduł działa też z wiersza poleceń:
 
 ```bash
 python3 gwbridge.py info
-python3 gwbridge.py read obraz.img --format 1440 --drive A
+python3 gwbridge.py read obraz.img --format 1440 --drive A --retries 10
 python3 gwbridge.py write obraz.img --format 1440 --drive A
 python3 gwbridge.py parse zapisane_wyjscie.txt --format 1440
 python3 gwbridge.py --gw /sciezka/do/gw info

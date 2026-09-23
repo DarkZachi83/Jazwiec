@@ -144,11 +144,20 @@ points the program at it and the choice is remembered. Without this the
 command can work in a console while the program started from Explorer sees
 nothing, because it has a different working directory.
 
+If a floppy has spent years in its sleeve, the first read is often the worst
+one. The liner inside the shell picks up dust on every turn, so the medium
+cleans itself as it is read — a disk that lost 33 sectors on the first pass
+returned all 1,760 on the second. That is why the report counts tracks that
+needed retries and, when there are any, suggests reading the disk again. The
+**Retries per track** field raises the number of attempts `gw` makes before
+giving up on a track; from the command line `--retries` does the same and
+`--seek-retries` additionally makes the head travel to the track anew.
+
 The module also works from the command line:
 
 ```bash
 python3 gwbridge.py info
-python3 gwbridge.py read image.img --format 1440 --drive A
+python3 gwbridge.py read image.img --format 1440 --drive A --retries 10
 python3 gwbridge.py write image.img --format 1440 --drive A
 python3 gwbridge.py parse saved_output.txt --format 1440
 python3 gwbridge.py --gw /path/to/gw info

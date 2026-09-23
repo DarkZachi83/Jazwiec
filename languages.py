@@ -98,6 +98,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gw_drive": "Naped:",
         "gw_drive_hint": "A i B - tasma IBM (ze skrzyzowaniem i prosta), "
                          "0-2 - tryb Shugart.",
+        "gw_retries": "Prob na sciezke:",
+        "gw_retries_hint": "Wiecej prob to dluzszy odczyt, ale i wieksza "
+                           "szansa na sciezki zakurzone.",
         "gw_format": "Format:",
         "gw_read": "Zgraj do pliku {ext}",
         "gw_write": "Zapisz obraz na dyskietke",
@@ -629,6 +632,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gw_drive": "Drive:",
         "gw_drive_hint": "A and B - IBM cable (twisted and straight), "
                          "0-2 - Shugart mode.",
+        "gw_retries": "Retries per track:",
+        "gw_retries_hint": "More retries means a slower read, but a better "
+                           "chance with dusty tracks.",
         "gw_format": "Format:",
         "gw_read": "Read to {ext} file",
         "gw_write": "Write image to floppy",

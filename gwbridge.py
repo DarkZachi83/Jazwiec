@@ -190,6 +190,10 @@ def rodzina_nosnika(klucz: str) -> str:
 DRIVES = ("A", "B", "0", "1", "2")
 DEFAULT_DRIVE = "A"
 
+# Tyle prob na sciezke robi gw, gdy nie powiemy inaczej.
+DEFAULT_RETRIES = 3
+MAX_RETRIES = 30
+
 # Prawidlowa predkosc napedu 3,5" i 5,25" DD/HD to 300 obr./min, poza
 # napedami 5,25" HD, ktore kreca sie 360 obr./min.
 RPM_TOLERANCE = 0.02
@@ -234,6 +238,14 @@ _T = {
         "sectors_value": "{found} z {total}",
         "bad": "Sektorow nieczytelnych:",
         "tracks_dead": "Sciezki martwe:",
+        "tracks_retried": "Sciezki odczytane po ponownych probach:",
+        "retry_hint": "Zalecany ponowny odczyt dyskietki. Jesli liczba "
+                      "nieczytelnych sektorow spada z kazdym\npodejsciem, "
+                      "nosnik jest raczej zabrudzony niz uszkodzony: "
+                      "wykladzina w kopercie\nzbiera pyl przy kazdym "
+                      "obrocie, wiec dyskietka czysci sie sama w trakcie "
+                      "czytania.\nPomaga tez zwiekszenie liczby prob na "
+                      "sciezke.",
         "tracks_misplaced": "Sciezki z sektorami z obcego cylindra:",
         "heads": "Odczytane sciezki wg glowic:",
         "head_line": "  strona {head}: {ok} z {total}",
@@ -323,6 +335,13 @@ _T = {
         "sectors_value": "{found} of {total}",
         "bad": "Unreadable sectors:",
         "tracks_dead": "Dead tracks:",
+        "tracks_retried": "Tracks read only after retries:",
+        "retry_hint": "Reading the floppy again is worth trying. If the "
+                      "number of unreadable sectors drops\nwith each pass, "
+                      "the medium is dirty rather than damaged: the liner "
+                      "inside the\nshell picks up dust on every turn, so "
+                      "the disk cleans itself as it is read.\nRaising the "
+                      "number of retries per track helps as well.",
         "tracks_misplaced": "Tracks with sectors from another cylinder:",
         "heads": "Tracks read per head:",
         "head_line": "  side {head}: {ok} of {total}",
@@ -608,6 +627,11 @@ class GwReport:
         return len(self.tracks)
 
     @property
+    def retried_tracks(self) -> int:
+        """Sciezki odczytane w calosci, ale dopiero przy kolejnej probie."""
+        return sum(1 for s in self.tracks.values() if s.state == "retried")
+
+    @property
     def cylinders(self) -> int:
         return self.fmt.cylindry
 
@@ -822,6 +846,8 @@ class GwReport:
             obce = [f"C{s.cyl} H{s.head}" for s in self.tracks.values()
                     if s.misplaced]
             pole(_t("tracks_dead"), ", ".join(martwe) or _t("none"))
+            if self.retried_tracks:
+                pole(_t("tracks_retried"), self.retried_tracks)
             if obce:
                 pole(_t("tracks_misplaced"), ", ".join(obce))
             wiersze.append("")
@@ -851,6 +877,11 @@ class GwReport:
             wiersze.append(_t("d_" + rozpoznanie, code=self.returncode))
         else:
             wiersze.append(_t("d_" + rozpoznanie))
+        # Sektory nieczytelne albo sciezki wymagajace powtorzen czesto biora
+        # sie z kurzu, a nie z uszkodzenia. Sprawdzone na dyskietce, ktora
+        # za pierwszym razem zgubila 33 sektory, a za drugim zadnego.
+        if rozpoznanie == "media" or self.retried_tracks:
+            wiersze += ["", _t("retry_hint")]
         return "\n".join(wiersze)
 
 
@@ -1008,7 +1039,8 @@ def _sprawdz(format_key: str, drive: str) -> str:
 
 def _wykonaj(operacja: str, obraz: str, format_key: str, drive: str,
              progress: Callable[[GwReport], bool] | None,
-             opis: str | None = None) -> GwReport:
+             opis: str | None = None, retries: int | None = None,
+             seek_retries: int | None = None) -> GwReport:
     gw_format = _sprawdz(format_key, drive)
     sciezka = find_gw()
     if not sciezka:
@@ -1020,8 +1052,15 @@ def _wykonaj(operacja: str, obraz: str, format_key: str, drive: str,
                       else os.path.abspath(obraz))
     parser = GwParser(raport)
     try:
-        proces = _uruchom([sciezka, operacja, "--drive", drive,
-                           "--format", gw_format, obraz])
+        polecenie = [sciezka, operacja, "--drive", drive,
+                     "--format", gw_format]
+        if retries is not None:
+            polecenie += ["--retries", str(retries)]
+        if seek_retries is not None:
+            # Kaze glowicy wrocic i dojechac do sciezki od nowa. Pomaga tam,
+            # gdzie same powtorzenia odczytu nie wystarczaja.
+            polecenie += ["--seek-retries", str(seek_retries)]
+        proces = _uruchom(polecenie + [obraz])
     except OSError as exc:
         raise GwError(str(exc)) from exc
 
@@ -1046,15 +1085,17 @@ def _wykonaj(operacja: str, obraz: str, format_key: str, drive: str,
 
 def read_to_image(obraz: str, format_key: str = "1440",
                   drive: str = DEFAULT_DRIVE,
-                  progress: Callable[[GwReport], bool] | None = None
-                  ) -> GwReport:
+                  progress: Callable[[GwReport], bool] | None = None,
+                  retries: int | None = None,
+                  seek_retries: int | None = None) -> GwReport:
     """
     Czyta dyskietke przez gw read i zwraca raport.
 
     progress dostaje raport po kazdej nowej sciezce i moze zwrocic False,
     zeby przerwac. Obraz powstaly do tej chwili zostaje na dysku.
     """
-    return _wykonaj("read", obraz, format_key, drive, progress)
+    return _wykonaj("read", obraz, format_key, drive, progress,
+                    retries=retries, seek_retries=seek_retries)
 
 
 def write_image(obraz: str, format_key: str = "1440",
@@ -1129,6 +1170,12 @@ def main(argv: list[str] | None = None) -> int:
         p.add_argument("image")
         p.add_argument("--format", default="1440", choices=sorted(GW_FORMATS))
         p.add_argument("--drive", default=DEFAULT_DRIVE, choices=DRIVES)
+        if nazwa == "read":
+            p.add_argument("--retries", type=int, metavar="N",
+                           help="prob odczytu na sciezke (domyslnie "
+                                f"{DEFAULT_RETRIES})")
+            p.add_argument("--seek-retries", type=int, metavar="N",
+                           help="ile razy dojechac do sciezki od nowa")
     p = pod.add_parser("parse")
     p.add_argument("log")
     p.add_argument("--format", default="1440", choices=sorted(GW_FORMATS))
@@ -1153,9 +1200,14 @@ def main(argv: list[str] | None = None) -> int:
             with open(arg.log, encoding="utf-8", errors="replace") as fh:
                 print(parse_log(fh.read(), arg.format).text())
             return 0
-        wykonaj = read_to_image if arg.cmd == "read" else write_image
-        raport = wykonaj(arg.image, arg.format, arg.drive,
-                         progress=_postep_konsoli)
+        if arg.cmd == "read":
+            raport = read_to_image(arg.image, arg.format, arg.drive,
+                                   progress=_postep_konsoli,
+                                   retries=arg.retries,
+                                   seek_retries=arg.seek_retries)
+        else:
+            raport = write_image(arg.image, arg.format, arg.drive,
+                                 progress=_postep_konsoli)
         print()
         print(raport.text())
         return 0 if raport.diagnosis in ("ok", "write_ok") else 1

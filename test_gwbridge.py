@@ -775,5 +775,66 @@ class WskazanaSciezkaDoGw(PrzypadekZKatalogiem):
         self.assertIn("nie istnieje", bledy.getvalue())
 
 
+
+class LiczbaProb(PrzypadekZKatalogiem):
+    """
+    Dyskietka po latach w kopercie potrafi przeczytac sie dopiero przy
+    szostym podejsciu - wykladzina zbiera z niej pyl przy kazdym obrocie.
+    Stad mozliwosc podniesienia liczby prob.
+    """
+
+    def test_przekazana_do_gw(self):
+        argumenty = podstaw_gw(self, odczyt=probki.pelny_odczyt())
+        gwbridge.read_to_image(self.sciezka("d.img"), "1440", retries=10,
+                               seek_retries=3)
+        with open(argumenty) as fh:
+            wywolanie = fh.read().splitlines()
+        self.assertIn("--retries", wywolanie)
+        self.assertEqual(wywolanie[wywolanie.index("--retries") + 1], "10")
+        self.assertEqual(
+            wywolanie[wywolanie.index("--seek-retries") + 1], "3")
+
+    def test_bez_podania_nie_narzucamy_swojej(self):
+        """Bez wyraznego zadania zostawiamy domyslne zachowanie gw."""
+        argumenty = podstaw_gw(self, odczyt=probki.pelny_odczyt())
+        gwbridge.read_to_image(self.sciezka("d.img"), "1440")
+        with open(argumenty) as fh:
+            self.assertNotIn("--retries", fh.read().splitlines())
+
+
+class PodpowiedzPonownegoOdczytu(unittest.TestCase):
+    """
+    Sprawdzone na prawdziwej dyskietce: 33 nieczytelne sektory za pierwszym
+    razem, zero za drugim. Raport ma o tym mowic, zamiast zostawiac
+    uzytkownika z wrazeniem uszkodzenia.
+    """
+
+    def setUp(self):
+        gwbridge.set_language("pl")
+
+    def test_liczy_sciezki_po_ponownych_probach(self):
+        r = gwbridge.parse_log(
+            probki.pelny_odczyt(slabe={(4, 1), (26, 1), (33, 1)}), "1440")
+        self.assertEqual(r.retried_tracks, 3)
+        self.assertIn("Sciezki odczytane po ponownych probach:", r.text())
+
+    def test_podpowiedz_przy_slabych_sciezkach(self):
+        """Nawet gdy wszystko sie odczytalo - to sygnal, ze nosnik brudny."""
+        r = gwbridge.parse_log(probki.pelny_odczyt(slabe={(4, 1)}), "1440")
+        self.assertEqual(r.diagnosis, "ok")
+        self.assertIn("Zalecany ponowny odczyt", r.text())
+
+    def test_podpowiedz_przy_nieczytelnych_sektorach(self):
+        r = gwbridge.parse_log(probki.pelny_odczyt({(56, 1)}), "1440")
+        self.assertIn("Zalecany ponowny odczyt", r.text())
+        self.assertIn("zabrudzony niz uszkodzony", r.text())
+
+    def test_czysty_odczyt_bez_podpowiedzi(self):
+        r = gwbridge.parse_log(probki.pelny_odczyt(), "1440")
+        self.assertEqual(r.retried_tracks, 0)
+        self.assertNotIn("Zalecany ponowny odczyt", r.text())
+        self.assertNotIn("Sciezki odczytane po ponownych", r.text())
+
+
 if __name__ == "__main__":
     unittest.main()

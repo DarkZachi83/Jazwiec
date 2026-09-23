@@ -2,6 +2,17 @@
 
 Numery wersji odpowiadają wartości `APP_VERSION` w `styles.py`.
 
+## 1.1
+
+- Liczba prób odczytu na ścieżkę do ustawienia w oknie Greaseweazle
+  (domyślnie 3, do 30) i w wierszu poleceń przez `--retries`. Doszło też
+  `--seek-retries`, każące głowicy dojechać do ścieżki od nowa.
+- Raport liczy ścieżki odczytane dopiero po ponownych próbach i — gdy takie
+  są albo gdy zostały nieczytelne sektory — zaleca powtórzenie odczytu.
+  Podstawa: dyskietka Amigi, która za pierwszym razem zgubiła 33 sektory,
+  a za drugim żadnego. Wykładzina w kopercie zbiera pył przy każdym obrocie,
+  więc nośnik czyści się sam w trakcie czytania.
+
 ## 1.0.1
 
 - Okno Greaseweazle pozwala wskazać plik `gw` ręcznie i zapamiętuje wybór.

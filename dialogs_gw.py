@@ -29,7 +29,8 @@ from typing import TYPE_CHECKING
 
 import gwbridge
 from styles import (
-    APP_NAME, SCREEN, PANEL, FRAME, TEXT, ACCENT, HINT, ALERT, GOOD,
+    APP_NAME, SCREEN, PANEL, FRAME, TEXT, BRIGHT, ACCENT, HINT, ALERT,
+    GOOD, FIELD,
     DIM, WARN, DRIVE, Panel,
 )
 from system import _real_home, _znajdz_ikone, hand_back
@@ -407,6 +408,27 @@ class GwDialog(tk.Toplevel):
         tk.Label(body, text=app.t("gw_drive_hint"), bg=PANEL, fg=HINT,
                  font=app.f_small, anchor="w").pack(fill="x", pady=(2, 8))
 
+        # Liczba prob na sciezke. Dyskietka po latach w kopercie potrafi
+        # przeczytac sie dopiero przy szostym podejsciu, bo wykladzina
+        # zbiera z niej pyl przy kazdym obrocie.
+        wiersz = tk.Frame(body, bg=PANEL)
+        wiersz.pack(fill="x")
+        tk.Label(wiersz, text=app.t("gw_retries"), bg=PANEL, fg=TEXT,
+                 font=app.f_body, anchor="w").pack(side="left")
+        self.var_retries = tk.StringVar(
+            value=str(app.config_data.get("gwretries",
+                                          gwbridge.DEFAULT_RETRIES)))
+        self.spin_retries = tk.Spinbox(
+            wiersz, from_=1, to=gwbridge.MAX_RETRIES, width=4,
+            textvariable=self.var_retries, font=app.f_body, bg=FIELD,
+            fg=BRIGHT, buttonbackground=FRAME, relief="flat",
+            insertbackground=BRIGHT, justify="right",
+            highlightthickness=1, highlightbackground=FRAME)
+        self.spin_retries.pack(side="left", padx=(8, 0))
+        tk.Label(wiersz, text=app.t("gw_retries_hint"), bg=PANEL, fg=HINT,
+                 font=app.f_small, anchor="w").pack(side="left", padx=(10, 0))
+        tk.Frame(body, bg=PANEL, height=8).pack(fill="x")
+
         # Zakladka na kazda rodzine nosnikow. Bez podzialu lista formatow
         # rozrosla by sie do kilkunastu pozycji i przestala byc czytelna,
         # a beda dochodzic kolejne systemy.
@@ -617,17 +639,32 @@ class GwDialog(tk.Toplevel):
         self.btn_save.configure(
             state="normal" if self.raport is not None and not zajety
             else "disabled")
+        self.spin_retries.configure(state="disabled" if zajety else "normal")
         for grupa in (self.drive_buttons, self.format_buttons):
             for przycisk in grupa.values():
                 przycisk.configure(state="disabled" if zajety else "normal")
 
     # -- operacje ----------------------------------------------------------
 
+    def liczba_prob(self) -> int:
+        """Liczba prob na sciezke z pola, sprowadzona do dozwolonego zakresu."""
+        try:
+            ile = int(self.var_retries.get())
+        except ValueError:
+            ile = gwbridge.DEFAULT_RETRIES
+        ile = max(1, min(gwbridge.MAX_RETRIES, ile))
+        if str(ile) != self.var_retries.get():
+            self.var_retries.set(str(ile))
+        return ile
+
     def _zapamietaj_wybor(self) -> tuple[str, str]:
         naped, format_ = self.var_drive.get(), self.var_format.get()
+        proby = self.liczba_prob()
         dane = self.app.config_data
-        if (dane.get("gwdrive"), dane.get("gwformat")) != (naped, format_):
+        if (dane.get("gwdrive"), dane.get("gwformat"),
+                dane.get("gwretries")) != (naped, format_, proby):
             dane["gwdrive"], dane["gwformat"] = naped, format_
+            dane["gwretries"] = proby
             self.app._save_config()
         return naped, format_
 
@@ -663,10 +700,14 @@ class GwDialog(tk.Toplevel):
                                    parent=self):
                 app._open_path(Path(cel))
 
+        # Liczbe prob odczytujemy tutaj, w watku okna. Tkinter nie pozwala
+        # siegac po swoje zmienne z watku w tle - wywolanie stamtad konczy
+        # sie bledem "main thread is not in main loop" i praca przepada.
+        proby = self.liczba_prob()
         self._uruchom(
             app.t("gw_reading"),
-            lambda postep: gwbridge.read_to_image(cel, format_, naped,
-                                                  progress=postep),
+            lambda postep: gwbridge.read_to_image(
+                cel, format_, naped, progress=postep, retries=proby),
             po, przycisk=self.btn_read)
 
     def zapis(self) -> None:
