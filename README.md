@@ -893,6 +893,20 @@ drives and emulators are the author's. Plenty of what the program does —
 particularly in the Greaseweazle diagnostics — came from findings made during
 that testing rather than from theory.
 
+## Screenshots
+
+### Main Menu
+![Main Menu](Img/Main_menu.png)
+
+### Greaseweazle Window
+![Greaseweazle Window](Img/greaseweazle_window.png)
+
+### Amiga Floppy Read
+![Amiga Floppy Read](Img/greaseweazle_window_amiga_read.png)
+
+### Reading Completed
+![Reading Completed](Img/greaseweazle_window_amiga_read_end.png)
+
 ## Licence
 
 MIT — see [LICENSE](LICENSE).

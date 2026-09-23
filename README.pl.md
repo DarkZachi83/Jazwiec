@@ -883,6 +883,20 @@ dyskietkach, napędach i emulatorach są moje. Sporo z tego, co program potrafi
 — zwłaszcza w diagnostyce Greaseweazle — wzięło się z obserwacji poczynionych
 podczas tych testów, a nie z teorii.
 
+## Zrzuty ekranu
+
+### Menu Główne
+![Menu Główne](Img/Main_menu.png)
+
+### Okno Greaseweazle
+![Okno Greaseweazle](Img/greaseweazle_window.png)
+
+### Odczyt dyskietki Amigi
+![Odczyt dyskietki Amigi](Img/greaseweazle_window_amiga_read.png)
+
+### Zakończenie odczytu
+![Zakończenie odczytu](Img/greaseweazle_window_amiga_read_end.png)
+
 ## Licencja
 
 MIT — zobacz [LICENSE](LICENSE).
