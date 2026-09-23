@@ -1,0 +1,49 @@
+# RetroZachar FFD Disk Maker
+# Dostep do stacji dyskietek bez uprawnien administratora.
+#
+# Instalowane przez ./install.sh do /etc/udev/rules.d/.
+#
+# ZAKRES
+#   Reguly obejmuja wylacznie napedy dyskietek:
+#
+#     * urzadzenia USB klasy pamieci masowej (bInterfaceClass 08)
+#       o podklasie UFI (0x04) oraz SFF-8070i (0x05) - dokladnie tak
+#       zglaszaja sie stacje dyskietek podlaczane kablem USB;
+#     * naped na kontrolerze plyty glownej, czyli /dev/fd0 i dalsze.
+#
+#   Pendrive'y, czytniki kart i dyski zewnetrzne uzywaja podklasy SCSI
+#   transparent (0x06) i nie sa tu wymienione - regula ich nie dotyka.
+#
+# UPRAWNIENIA
+#   MODE="0666" nadaje prawa odczytu i zapisu wszystkim uzytkownikom
+#   maszyny. Wczesniejsza wersja polegala na TAG+="uaccess", czyli liscie
+#   ACL nadawanej przez systemd-logind osobie zalogowanej lokalnie, ale
+#   mechanizm ten nie dziala na czesci konfiguracji i zostawial naped
+#   niedostepny.
+#
+#   Konsekwencja: na komputerze wielouzytkownikowym kazde konto moze czytac
+#   i zapisywac wlozona dyskietke. Dla stacji dyskietek jest to zwykle bez
+#   znaczenia; gdyby jednak mialo, zmien MODE na "0660" i dopisz GROUP
+#   z wybrana grupa, na przyklad GROUP="floppy".
+#
+# SPRAWDZENIE PO INSTALACJI
+#   Podlacz stacje ponownie i wykonaj:
+#
+#       ls -l /dev/sd*
+#
+#   Wezel odpowiadajacy stacji powinien miec prawa brw-rw-rw-.
+#
+#   Jesli naped nadal jest niedostepny, sprawdz, jaka podklase zglasza:
+#
+#       lsusb -v 2>/dev/null | grep -E "bInterfaceClass|bInterfaceSubClass"
+#
+#   Czesc starszych stacji podaje 0x06 zamiast 0x04. Wtedy bezpieczniej
+#   dopisac regule dla konkretnego egzemplarza po jego identyfikatorach,
+#   niz obejmowac cala podklase 0x06 - naleza do niej takze pendrive'y
+#   i dyski zewnetrzne:
+#
+#       SUBSYSTEM=="block", KERNEL=="sd*", ATTRS{idVendor}=="XXXX", ATTRS{idProduct}=="YYYY", MODE="0666"
+
+SUBSYSTEM=="block", KERNEL=="sd*", SUBSYSTEMS=="usb", ATTRS{bInterfaceClass}=="08", ATTRS{bInterfaceSubClass}=="04", MODE="0666"
+SUBSYSTEM=="block", KERNEL=="sd*", SUBSYSTEMS=="usb", ATTRS{bInterfaceClass}=="08", ATTRS{bInterfaceSubClass}=="05", MODE="0666"
+KERNEL=="fd[0-9]*", MODE="0666"
