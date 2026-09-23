@@ -75,6 +75,8 @@ __all__ = [
     "nosniki_rodziny",
     "DRIVES",
     "find_gw",
+    "set_tool_path",
+    "tool_path",
     "probe",
     "read_to_image",
     "write_image",
@@ -204,7 +206,9 @@ class GwError(Exception):
 _T = {
     "pl": {
         "no_gw": "Nie znaleziono polecenia gw. Zainstaluj narzedzia "
-                 "Greaseweazle (pipx install greaseweazle).",
+                 "Greaseweazle (pipx install greaseweazle) albo wskaz plik "
+                 "gw recznie.",
+        "bad_tool": "Wskazany plik nie istnieje: {path}",
         "no_device": "Narzedzie gw jest, ale nie widzi urzadzenia "
                      "Greaseweazle. Sprawdz przewod USB.",
         "bad_format": "Format {key} nie jest jeszcze obslugiwany przez most "
@@ -291,7 +295,9 @@ _T = {
     },
     "en": {
         "no_gw": "The gw command was not found. Install the Greaseweazle "
-                 "tools (pipx install greaseweazle).",
+                 "tools (pipx install greaseweazle), or point to the gw "
+                 "file manually.",
+        "bad_tool": "The chosen file does not exist: {path}",
         "no_device": "The gw tool is present but sees no Greaseweazle "
                      "device. Check the USB cable.",
         "bad_format": "Format {key} is not supported by the Greaseweazle "
@@ -419,8 +425,28 @@ class GwStatus:
         return None
 
 
+# Sciezka wskazana przez uzytkownika. Pod Windowsem to czesto jedyna droga:
+# narzedzia Greaseweazle rozpakowuje sie do dowolnego katalogu, a jesli nie
+# trafi on do zmiennej PATH, polecenie dziala tylko w tym jednym folderze.
+# Program uruchomiony z Eksploratora ma inny katalog roboczy i nie widzi go
+# wcale - a takze nie zobaczy zmian w PATH sprzed ponownego zalogowania.
+_wskazane: str | None = None
+
+
+def set_tool_path(sciezka: str | None) -> None:
+    """Zapamietuje sciezke do gw wskazana recznie. None wraca do szukania."""
+    global _wskazane
+    _wskazane = str(sciezka) if sciezka else None
+
+
+def tool_path() -> str | None:
+    return _wskazane
+
+
 def find_gw() -> str | None:
-    """Sciezka do polecenia gw albo None."""
+    """Sciezka do polecenia gw: najpierw wskazana recznie, potem z PATH."""
+    if _wskazane and os.path.isfile(_wskazane):
+        return _wskazane
     return shutil.which("gw")
 
 
@@ -1094,6 +1120,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="gwbridge", description="Most do Greaseweazle.")
     parser.add_argument("--lang", choices=sorted(_T), default="pl")
+    parser.add_argument("--gw", metavar="SCIEZKA",
+                        help="sciezka do polecenia gw, gdy nie ma go w PATH")
     pod = parser.add_subparsers(dest="cmd", required=True)
     pod.add_parser("info")
     for nazwa in ("read", "write"):
@@ -1106,6 +1134,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--format", default="1440", choices=sorted(GW_FORMATS))
     arg = parser.parse_args(argv)
     set_language(arg.lang)
+    if arg.gw:
+        if not os.path.isfile(arg.gw):
+            print(_t("bad_tool", path=arg.gw), file=sys.stderr)
+            return 1
+        set_tool_path(arg.gw)
 
     try:
         if arg.cmd == "info":

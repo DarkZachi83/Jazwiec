@@ -138,6 +138,12 @@ formatowanie niskopoziomowe.
 Zapis uznawany jest za udany dopiero wtedy, gdy `gw` potwierdzi weryfikację
 zdaniem `All tracks verified`.
 
+Jeśli polecenia `gw` nie ma w ścieżce systemowej — pod Windowsem narzędzia
+rozpakowuje się zwykle do dowolnego katalogu — przycisk **Wskaż plik gw**
+kieruje program wprost do niego, a wybór zostaje zapamiętany. Bez tego
+polecenie potrafi działać w konsoli, a program uruchomiony z Eksploratora
+nie widzi go wcale, bo ma inny katalog roboczy.
+
 Moduł działa też z wiersza poleceń:
 
 ```bash
@@ -145,6 +151,7 @@ python3 gwbridge.py info
 python3 gwbridge.py read obraz.img --format 1440 --drive A
 python3 gwbridge.py write obraz.img --format 1440 --drive A
 python3 gwbridge.py parse zapisane_wyjscie.txt --format 1440
+python3 gwbridge.py --gw /sciezka/do/gw info
 ```
 
 Formaty pogrupowane są w zakładki według rodzin:
@@ -882,20 +889,6 @@ projektowe, wszystkie testy sprzętowe i sprawdzenie działania na prawdziwych
 dyskietkach, napędach i emulatorach są moje. Sporo z tego, co program potrafi
 — zwłaszcza w diagnostyce Greaseweazle — wzięło się z obserwacji poczynionych
 podczas tych testów, a nie z teorii.
-
-## Zrzuty ekranu
-
-### Menu Główne
-![Menu Główne](Img/Main_menu.png)
-
-### Okno Greaseweazle
-![Okno Greaseweazle](Img/greaseweazle_window.png)
-
-### Odczyt dyskietki Amigi
-![Odczyt dyskietki Amigi](Img/greaseweazle_window_amiga_read.png)
-
-### Zakończenie odczytu
-![Zakończenie odczytu](Img/greaseweazle_window_amiga_read_end.png)
 
 ## Licencja
 

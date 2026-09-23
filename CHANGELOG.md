@@ -2,6 +2,16 @@
 
 Numery wersji odpowiadają wartości `APP_VERSION` w `styles.py`.
 
+## 1.0.1
+
+- Okno Greaseweazle pozwala wskazać plik `gw` ręcznie i zapamiętuje wybór.
+  Pod Windowsem narzędzia rozpakowuje się do dowolnego katalogu; jeśli nie
+  trafi on do zmiennej PATH, polecenie działa tylko w tym folderze, a
+  program uruchomiony z Eksploratora ma inny katalog roboczy i nie widzi go
+  wcale. Wiersz poleceń przyjmuje tę ścieżkę przez `--gw`.
+- Poprawki testów: jeden z nich uruchamiał prawdziwe `gw` na komputerze,
+  na którym było zainstalowane, a inny zależał od szerokości czcionki.
+
 ## 1.0 — pierwsze wydanie publiczne
 
 Program w kształcie, w jakim trafia na GitHuba.

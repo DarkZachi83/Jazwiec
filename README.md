@@ -138,6 +138,12 @@ low-level format.
 A write counts as successful only once `gw` confirms verification with the
 line `All tracks verified`.
 
+If the `gw` command is not on the system PATH — on Windows the tools are
+often unpacked into an arbitrary directory — the **Locate gw file** button
+points the program at it and the choice is remembered. Without this the
+command can work in a console while the program started from Explorer sees
+nothing, because it has a different working directory.
+
 The module also works from the command line:
 
 ```bash
@@ -145,6 +151,7 @@ python3 gwbridge.py info
 python3 gwbridge.py read image.img --format 1440 --drive A
 python3 gwbridge.py write image.img --format 1440 --drive A
 python3 gwbridge.py parse saved_output.txt --format 1440
+python3 gwbridge.py --gw /path/to/gw info
 ```
 
 Formats are grouped into tabs by family:
@@ -892,20 +899,6 @@ design decisions, all hardware testing and the verification on real floppies,
 drives and emulators are the author's. Plenty of what the program does —
 particularly in the Greaseweazle diagnostics — came from findings made during
 that testing rather than from theory.
-
-## Screenshots
-
-### Main Menu
-![Main Menu](Img/Main_menu.png)
-
-### Greaseweazle Window
-![Greaseweazle Window](Img/greaseweazle_window.png)
-
-### Amiga Floppy Read
-![Amiga Floppy Read](Img/greaseweazle_window_amiga_read.png)
-
-### Reading Completed
-![Reading Completed](Img/greaseweazle_window_amiga_read_end.png)
 
 ## Licence
 

@@ -91,6 +91,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gw_ready": "{model}, firmware {firmware}, port {port}   "
                     "(narzedzia gw {tool})",
         "gw_recheck": "Sprawdz ponownie",
+        "gw_pick_tool": "Wskaz plik gw...",
+        "gw_pick_tool_title": "Wskaz plik gw (gw.exe pod Windows)",
+        "gw_tool_hint": "Narzedzia Greaseweazle rozpakowane poza PATH? Wskaz "
+                        "plik gw - program go zapamieta.",
         "gw_drive": "Naped:",
         "gw_drive_hint": "A i B - tasma IBM (ze skrzyzowaniem i prosta), "
                          "0-2 - tryb Shugart.",
@@ -618,6 +622,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gw_ready": "{model}, firmware {firmware}, port {port}   "
                     "(gw tools {tool})",
         "gw_recheck": "Check again",
+        "gw_pick_tool": "Locate gw file...",
+        "gw_pick_tool_title": "Locate the gw file (gw.exe on Windows)",
+        "gw_tool_hint": "Greaseweazle tools unpacked outside PATH? Point to "
+                        "the gw file - the program will remember it.",
         "gw_drive": "Drive:",
         "gw_drive_hint": "A and B - IBM cable (twisted and straight), "
                          "0-2 - Shugart mode.",

@@ -359,6 +359,10 @@ class GwDialog(tk.Toplevel):
         format_ = app.config_data.get("gwformat", "1440")
         if format_ not in gwbridge.GW_FORMATS:
             format_ = "1440"
+        # Sciezka do gw wskazana wczesniej recznie. Pod Windowsem to czesto
+        # jedyna droga: narzedzia rozpakowane poza PATH dzialaja tylko
+        # w swoim katalogu, a okno uruchomione z Eksploratora go nie ma.
+        gwbridge.set_tool_path(app.config_data.get("gwpath") or None)
         self.var_drive = tk.StringVar(value=naped)
         self.var_format = tk.StringVar(value=format_)
 
@@ -381,6 +385,14 @@ class GwDialog(tk.Toplevel):
                                        self.sprawdz_urzadzenie)
         self.btn_recheck.configure(font=app.f_small, padx=6)
         self.btn_recheck.pack(side="right")
+        self.btn_tool = app._button(wiersz, app.t("gw_pick_tool"),
+                                    self.wskaz_narzedzie)
+        self.btn_tool.configure(font=app.f_small, padx=6)
+        self.btn_tool.pack(side="right", padx=(0, 6))
+
+        self.lbl_tool = tk.Label(body, text="", bg=PANEL, fg=HINT,
+                                 font=app.f_small, anchor="w", justify="left")
+        self.lbl_tool.pack(fill="x", pady=(2, 0))
 
         tk.Frame(body, bg=FRAME, height=1).pack(fill="x", pady=10)
 
@@ -532,19 +544,46 @@ class GwDialog(tk.Toplevel):
 
         self.after(ODPYTYWANIE_MS, czekaj)
 
+    def wskaz_narzedzie(self) -> None:
+        """
+        Reczne wskazanie pliku gw.
+
+        Pod Windowsem narzedzia rozpakowuje sie do dowolnego katalogu.
+        Jesli nie trafi on do PATH, polecenie dziala tylko w tym folderze,
+        a program uruchomiony z Eksploratora ma inny katalog roboczy.
+        """
+        app = self.app
+        poczatek = gwbridge.tool_path() or str(_real_home())
+        wybor = filedialog.askopenfilename(
+            parent=self, title=app.t("gw_pick_tool_title"),
+            initialdir=os.path.dirname(poczatek) if os.path.isfile(poczatek)
+            else poczatek)
+        if not wybor:
+            return
+        gwbridge.set_tool_path(wybor)
+        if app.config_data.get("gwpath") != wybor:
+            app.config_data["gwpath"] = wybor
+            app._save_config()
+        self.sprawdz_urzadzenie()
+
     def _pokaz_stan(self) -> None:
         if not self.winfo_exists():
             return
         stan = self._stan
-        gwbridge.set_language(self.app.lang)
+        app = self.app
+        gwbridge.set_language(app.lang)
+        wskazane = gwbridge.tool_path()
+        self.lbl_tool.configure(
+            text=wskazane if wskazane else app.t("gw_tool_hint"),
+            fg=TEXT if wskazane else HINT)
         problem = stan.problem() if stan else None
         if problem:
             self.lbl_device.configure(text=problem, fg=ALERT)
         else:
             self.lbl_device.configure(
-                text=self.app.t("gw_ready", model=stan.model,
-                                firmware=stan.firmware, port=stan.port,
-                                tool=stan.tool_version),
+                text=app.t("gw_ready", model=stan.model,
+                            firmware=stan.firmware, port=stan.port,
+                            tool=stan.tool_version),
                 fg=GOOD)
         self._odswiez_przyciski()
 
@@ -572,7 +611,8 @@ class GwDialog(tk.Toplevel):
                 font=app.f_bold if trwa else app.f_body,
                 # zablokowany, ale czytelny: ciemny napis na zoltym tle
                 disabledforeground=SCREEN if trwa else "#6B6B6B")
-        self.btn_recheck.configure(state="disabled" if zajety else "normal")
+        for przycisk in (self.btn_recheck, self.btn_tool):
+            przycisk.configure(state="disabled" if zajety else "normal")
         self.btn_cancel.configure(state="normal" if zajety else "disabled")
         self.btn_save.configure(
             state="normal" if self.raport is not None and not zajety

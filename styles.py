@@ -17,7 +17,7 @@ from tkinter import ttk
 from system import _znajdz_ikone
 
 APP_NAME = "RetroZachar - FFD Disk Maker - Jazwiec"
-APP_VERSION = "1.0"
+APP_VERSION = "1.0.1"
 
 
 # --------------------------------------------------------------------------
