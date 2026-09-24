@@ -11,6 +11,8 @@ pomijany, zamiast zglaszac blad.
 
 import os
 import re
+import stat
+import sys
 import unittest
 
 from helpers import CzystyStart, PrzypadekZKatalogiem, podstaw_gw
@@ -590,6 +592,192 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
             with self.subTest(wpisane=wpisane):
                 okno.var_retries.set(wpisane)
                 self.assertEqual(okno.liczba_prob(), oczekiwane)
+
+    def dwa_przejscia(self, pierwsze_brak, drugie_brak, format_="amiga880"):
+        """Atrapa gw gubiaca inna sciezke w kazdym przejsciu."""
+        import textwrap
+        nosnik = gwbridge.NOSNIKI[format_]
+        licznik = self.sciezka("licznik")
+        katalog = os.path.join(self.katalog, "atrapa-merge")
+        os.makedirs(katalog, exist_ok=True)
+        plik = os.path.join(katalog, "gw")
+        with open(plik, "w") as fh:
+            fh.write(textwrap.dedent(f"""\
+                #!{sys.executable}
+                import sys, os
+                if sys.argv[1] == "info":
+                    print({self.probki.GW_INFO_URZADZENIE!r}, end="")
+                    sys.exit(0)
+                n = 0
+                if os.path.exists({licznik!r}):
+                    n = int(open({licznik!r}).read())
+                open({licznik!r}, "w").write(str(n + 1))
+                znane = (".img", ".ima", ".adf", ".st", ".msa", ".d64")
+                if not sys.argv[-1].lower().endswith(znane):
+                    print("** FATAL ERROR:")
+                    print("%s: Unrecognised file suffix" % sys.argv[-1])
+                    sys.exit(1)
+                wzor = b"-=[BAD SECTOR]=-" * 32
+                dane = bytearray(b"D" * {nosnik.rozmiar})
+                brak = {pierwsze_brak!r} if n == 0 else {drugie_brak!r}
+                for sciezka in brak:
+                    for s in range(sciezka * {nosnik.sektory},
+                                   (sciezka + 1) * {nosnik.sektory}):
+                        dane[s * 512:(s + 1) * 512] = wzor
+                open(sys.argv[-1], "wb").write(bytes(dane))
+                print("Reading c=0-79:h=0-1 revs=1.1")
+            """))
+        os.chmod(plik, os.stat(plik).st_mode | stat.S_IEXEC)
+        # Przez ustawienia, bo okno wczytuje sciezke stamtad przy kazdym
+        # otwarciu - ustawiona wprost zostalaby nadpisana.
+        self.app.config_data["gwpath"] = plik
+        self.addCleanup(gwbridge.set_tool_path, None)
+
+    def test_skladanie_z_kilku_przejsc(self):
+        """
+        Pierwsze przejscie gubi jedna sciezke, drugie inna. Razem daja
+        komplet - tak jak przy dyskietce Titan, gdzie cztery odczyty
+        roznily sie jednym sektorem.
+        """
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        self.dwa_przejscia([53], [70])
+        cel = self.sciezka("Titan.adf")
+        stare = fd.asksaveasfilename, mb.askyesno, mb.askyesnocancel
+        fd.asksaveasfilename = lambda **k: cel
+        mb.askyesno = lambda *a, **k: False
+        mb.askyesnocancel = lambda *a, **k: True      # dolozyc brakujace
+        self.addCleanup(lambda: setattr(fd, "asksaveasfilename", stare[0]))
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare[1]))
+        self.addCleanup(lambda: setattr(mb, "askyesnocancel", stare[2]))
+
+        okno = self.otworz()
+        okno.var_format.set("amiga880")
+        self.app.update()
+
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        with open(cel, "rb") as fh:
+            brak = gwbridge.missing_sectors(fh.read(), 512)
+        self.assertEqual(len(brak), 11, "pierwsze przejscie gubi sciezke")
+        self.assertIn("1749 z 1760", okno.lbl_zebrane.cget("text"))
+        self.assertEqual(okno.mapa_zebrane._stany[(26, 1)], "bad")
+
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        with open(cel, "rb") as fh:
+            self.assertEqual(gwbridge.missing_sectors(fh.read(), 512), set())
+        self.assertEqual(okno.raport.merge.recovered, 11)
+        self.assertIn("1760 z 1760", okno.lbl_zebrane.cget("text"))
+        self.assertEqual(okno.mapa_zebrane._stany[(26, 1)], "ok")
+
+        raporty = sorted(p for p in os.listdir(self.katalog)
+                         if p.startswith("Titan-przejscie-"))
+        self.assertEqual(raporty, ["Titan-przejscie-1.txt",
+                                   "Titan-przejscie-2.txt"])
+
+    def test_zebrane_dane_znikaja_przy_nowej_dyskietce(self):
+        """
+        Zgloszenie z uzytkowania: dolna mapa zostawala z poprzedniej
+        dyskietki i pokazywala komplet, gdy nowy odczyt byl w polowie.
+        """
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        self.dwa_przejscia([], [])          # oba przejscia bez dziur
+        stare = fd.asksaveasfilename, mb.askyesno, mb.askyesnocancel
+        mb.askyesno = lambda *a, **k: False
+        mb.askyesnocancel = lambda *a, **k: True
+        self.addCleanup(lambda: setattr(fd, "asksaveasfilename", stare[0]))
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare[1]))
+        self.addCleanup(lambda: setattr(mb, "askyesnocancel", stare[2]))
+
+        okno = self.otworz()
+        okno.var_format.set("amiga880")
+        self.app.update()
+
+        fd.asksaveasfilename = lambda **k: self.sciezka("pierwsza.adf")
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.assertIn("1760 z 1760", okno.lbl_zebrane.cget("text"))
+        self.assertEqual(okno.mapa_zebrane._stany[(0, 0)], "ok")
+
+        fd.asksaveasfilename = lambda **k: self.sciezka("druga.adf")
+        okno.odczyt()
+        self.app.update()
+        self.assertNotIn("1760", okno.lbl_zebrane.cget("text"),
+                         "licznik nie moze opisywac poprzedniej dyskietki")
+        self.assertNotIn("ok", set(okno.mapa_zebrane._stany.values()),
+                         "mapa zebranych danych ma zaczac od pustej")
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+
+    def test_dokladanie_pokazuje_stan_od_razu(self):
+        """Przy dokladaniu dolna mapa ma pokazac, co juz jest w pliku."""
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        self.dwa_przejscia([53], [53])
+        cel = self.sciezka("Titan.adf")
+        stare = fd.asksaveasfilename, mb.askyesno, mb.askyesnocancel
+        fd.asksaveasfilename = lambda **k: cel
+        mb.askyesno = lambda *a, **k: False
+        mb.askyesnocancel = lambda *a, **k: True
+        self.addCleanup(lambda: setattr(fd, "asksaveasfilename", stare[0]))
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare[1]))
+        self.addCleanup(lambda: setattr(mb, "askyesnocancel", stare[2]))
+
+        okno = self.otworz()
+        okno.var_format.set("amiga880")
+        self.app.update()
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+
+        okno.odczyt()
+        self.app.update()
+        self.assertEqual(okno.mapa_zebrane._stany[(26, 1)], "bad",
+                         "od razu widac, czego brakuje w pliku")
+        self.assertIn("1749 z 1760", okno.lbl_zebrane.cget("text"))
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+
+    def test_nadpisanie_zamiast_skladania(self):
+        """Odpowiedz "nie" ma nadpisac plik, a nie dokladac do niego."""
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        self.dwa_przejscia([53], [70])
+        cel = self.sciezka("Nadpisz.adf")
+        stare = fd.asksaveasfilename, mb.askyesno, mb.askyesnocancel
+        fd.asksaveasfilename = lambda **k: cel
+        mb.askyesno = lambda *a, **k: False
+        mb.askyesnocancel = lambda *a, **k: False
+        self.addCleanup(lambda: setattr(fd, "asksaveasfilename", stare[0]))
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare[1]))
+        self.addCleanup(lambda: setattr(mb, "askyesnocancel", stare[2]))
+
+        okno = self.otworz()
+        okno.var_format.set("amiga880")
+        self.app.update()
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.assertIsNone(okno.raport.merge, "nie bylo skladania")
+        with open(cel, "rb") as fh:
+            brak = gwbridge.missing_sectors(fh.read(), 512)
+        self.assertEqual(sorted(brak)[0], 70 * 11,
+                         "w pliku sa dziury z drugiego przejscia")
+
+    def test_plik_innego_nosnika_nie_jest_zestawiany(self):
+        """
+        Licznik zebranych danych potrafil pokazac komplet dla pliku
+        o zupelnie innym rozmiarze.
+        """
+        podstaw_gw(self)
+        okno = self.otworz()
+        okno.var_format.set("amiga880")
+        self.app.update()
+        obcy = self.sciezka("pecetowy.img")
+        with open(obcy, "wb") as fh:
+            fh.write(bytes(1474560))
+        okno._pokaz_zebrane(obcy, None)
+        self.assertIn("innego nosnika", okno.lbl_zebrane.cget("text"))
 
     def test_zakladki_rodzin_nosnikow(self):
         """

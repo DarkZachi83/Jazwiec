@@ -84,6 +84,19 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gw_track_attempts": "prob: {count}",
         "gw_track_foreign": "sektory z cylindra {cyls}",
         "gw_hover_hint": "Najedz na sciezke, zeby zobaczyc szczegoly.",
+        "gw_this_pass": "To przejscie:",
+        "gw_collected": "Zebrane dane:",
+        "gw_collected_none": "brak obrazu - zgraj dyskietke",
+        "gw_collected_other": "plik ma rozmiar innego nosnika "
+                              "({size} B) - nie da sie go zestawic "
+                              "z wybranym formatem",
+        "gw_collected_count": "{done} z {total} sektorow",
+        "gw_merge_ask": "Plik juz istnieje:\n{path}\n\nDolozyc do niego "
+                        "sektory, ktorych w nim brakuje, czy nadpisac go "
+                        "nowym odczytem?\n\nTak - dolozyc brakujace\n"
+                        "Nie - nadpisac\nAnuluj - nie robic nic",
+        "gw_merge_new": "odzyskano {count} nowych",
+        "gw_report_saved": "Raport przejscia: {path}",
         "gw_intro": "Greaseweazle czyta strumien magnetyczny prosto z glowicy "
                     "napedu z epoki. Naped i format\ntrzeba wskazac - gw nie "
                     "rozpoznaje ich sam, w odroznieniu od stacji USB.",
@@ -618,6 +631,19 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gw_track_attempts": "attempts: {count}",
         "gw_track_foreign": "sectors from cylinder {cyls}",
         "gw_hover_hint": "Point at a track to see its details.",
+        "gw_this_pass": "This pass:",
+        "gw_collected": "Collected data:",
+        "gw_collected_none": "no image yet - read a floppy",
+        "gw_collected_other": "the file has the size of another medium "
+                              "({size} B) - it cannot be matched against "
+                              "the chosen format",
+        "gw_collected_count": "{done} of {total} sectors",
+        "gw_merge_ask": "The file already exists:\n{path}\n\nFill in the "
+                        "sectors it is missing, or overwrite it with the "
+                        "new read?\n\nYes - fill in what is missing\n"
+                        "No - overwrite\nCancel - do nothing",
+        "gw_merge_new": "{count} newly recovered",
+        "gw_report_saved": "Pass report: {path}",
         "gw_intro": "Greaseweazle reads the magnetic flux straight from the "
                     "head of a period drive. The drive\nand format must be "
                     "chosen - unlike a USB drive, gw does not detect them.",

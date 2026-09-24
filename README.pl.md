@@ -153,6 +153,28 @@ zgubiła 33 sektory, w drugim oddała wszystkie 1760. Dlatego raport liczy
 ścieżkę; z wiersza poleceń robi to `--retries`, a `--seek-retries` każe
 dodatkowo dojechać do ścieżki od nowa.
 
+### Składanie obrazu z kilku odczytów
+
+Różne odczyty tej samej dyskietki gubią różne sektory, więc kilka podejść
+razem potrafi dać komplet, którego żadne z osobna nie dało — sprawdzone na
+dyskietce Amigi, której cztery odczyty różniły się dokładnie jednym sektorem.
+
+Gdy wskazany plik już istnieje, okno pyta, czy dołożyć do niego brakujące
+sektory, czy go nadpisać. Druga mapa pod pierwszą pokazuje **zebrane dane**:
+kolumny obu map pokrywają się, więc spojrzenie w dół jednej kolumny mówi
+zarazem, jak poszło w tym przebiegu i co jest już w obrazie. Licznik podaje,
+ile sektorów zebrano i ile przybyło ostatnio.
+
+Dziury rozpoznawane są po wypełnieniu, którym `gw` zastępuje sektor
+nieodczytany. Sektor z samych zer to prawidłowe dane — pusty obszar dyskietki
+wygląda właśnie tak — i nigdy nie jest uznawany za brakujący, bo przy
+składaniu nadpisałoby to dobrą treść.
+
+Nowy odczyt idzie do pliku obok, a obraz podmieniany jest dopiero po udanym
+złożeniu, więc zebrana praca nie przepadnie przez nieudane przejście. Raport
+z każdego przejścia zapisuje się obok obrazu, z numerem w nazwie
+(`Titan-przejscie-1.txt`).
+
 Moduł działa też z wiersza poleceń:
 
 ```bash

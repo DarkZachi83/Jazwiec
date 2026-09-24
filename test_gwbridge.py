@@ -836,5 +836,91 @@ class PodpowiedzPonownegoOdczytu(unittest.TestCase):
         self.assertNotIn("Sciezki odczytane po ponownych", r.text())
 
 
+
+class SkladanieObrazow(PrzypadekZKatalogiem):
+    """
+    Rozne odczyty tej samej dyskietki gubia rozne sektory - sprawdzone na
+    dyskietce Titan, gdzie cztery przejscia roznily sie jednym sektorem.
+    Zlozenie daje komplet, ktorego zadne przejscie z osobna nie dalo.
+    """
+
+    def obraz(self, brakujace=(), sektorow=8, wypelniacz=b"D"):
+        wzor = (gwbridge.BAD_FILL * 32)
+        dane = bytearray(wypelniacz * 512 * sektorow)
+        for numer in brakujace:
+            dane[numer * 512:(numer + 1) * 512] = wzor
+        return bytes(dane)
+
+    def test_zera_to_dane_a_nie_dziura(self):
+        """
+        Pusty obszar dyskietki to same zera. Uznanie go za dziure kasowaloby
+        przy skladaniu prawidlowa tresc.
+        """
+        self.assertEqual(
+            gwbridge.missing_sectors(self.obraz(wypelniacz=b"\x00"), 512),
+            set())
+
+    def test_rozpoznaje_wypelnienie_gw(self):
+        self.assertEqual(
+            gwbridge.missing_sectors(self.obraz({2, 5}), 512), {2, 5})
+
+    def test_bierze_brakujace_z_nowego(self):
+        wynik = gwbridge.merge_images(self.obraz({2, 5}),
+                                      self.obraz({5}, wypelniacz=b"N"))
+        self.assertEqual((wynik.before, wynik.recovered, wynik.missing),
+                         (2, 1, 1))
+        self.assertEqual(wynik.sectors, {5})
+        self.assertEqual(wynik.data[2 * 512:3 * 512], b"N" * 512,
+                         "sektor odzyskany pochodzi z nowego odczytu")
+
+    def test_dobre_sektory_zostaja_nietkniete(self):
+        """Nowy odczyt moze miec dziury tam, gdzie stary mial dane."""
+        wynik = gwbridge.merge_images(self.obraz({2}),
+                                      self.obraz({6}, wypelniacz=b"N"))
+        self.assertEqual(wynik.data[0:512], b"D" * 512)
+        self.assertEqual(wynik.data[6 * 512:7 * 512], b"D" * 512,
+                         "dziura w nowym nie moze skasowac danych")
+        self.assertEqual(wynik.data[2 * 512:3 * 512], b"N" * 512,
+                         "a dziure w starym uzupelnia nowy")
+        self.assertEqual((wynik.recovered, wynik.missing), (1, 0),
+                         "razem daja komplet, choc zadne z osobna nie dalo")
+
+    def test_rozne_rozmiary_odrzucane(self):
+        gwbridge.set_language("pl")
+        with self.assertRaises(gwbridge.GwError):
+            gwbridge.merge_images(self.obraz(sektorow=8),
+                                  self.obraz(sektorow=9))
+
+    def test_stan_sciezek_z_obrazu(self):
+        nosnik = gwbridge.NOSNIKI["amiga880"]
+        dane = bytearray(b"D" * nosnik.rozmiar)
+        wzor = gwbridge.BAD_FILL * 32
+        for s in range(53 * 11, 53 * 11 + 11):        # cala sciezka C26 H1
+            dane[s * 512:(s + 1) * 512] = wzor
+        dane[70 * 11 * 512:(70 * 11 + 1) * 512] = wzor   # jeden sektor
+        stan = gwbridge.coverage(bytes(dane), nosnik)
+        self.assertEqual(stan[(26, 1)], "bad")
+        self.assertEqual(stan[(35, 0)], "retried", "czesc sektorow brakuje")
+        self.assertEqual(stan[(0, 0)], "ok")
+
+    def test_raport_dostaje_numer_przejscia(self):
+        obraz = self.sciezka("Titan.adf")
+        pierwszy = gwbridge.report_name(obraz)
+        self.assertTrue(pierwszy.endswith("Titan-przejscie-1.txt"))
+        with open(pierwszy, "w") as fh:
+            fh.write("x")
+        self.assertTrue(
+            gwbridge.report_name(obraz).endswith("Titan-przejscie-2.txt"))
+
+    def test_raport_pokazuje_zlozenie(self):
+        gwbridge.set_language("pl")
+        r = gwbridge.parse_log(probki.pelny_odczyt(), "1440")
+        r.merge = gwbridge.merge_images(self.obraz({2, 5}),
+                                        self.obraz({5}, wypelniacz=b"N"))
+        tekst = r.text()
+        self.assertIn("Skladanie z poprzednimi przejsciami:", tekst)
+        self.assertIn("Odzyskane w tym przejsciu:", tekst)
+
+
 if __name__ == "__main__":
     unittest.main()

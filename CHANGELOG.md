@@ -2,6 +2,38 @@
 
 Numery wersji odpowiadają wartości `APP_VERSION` w `styles.py`.
 
+## 1.2.2
+
+- Składanie obrazu nie działało: plik roboczy nazywał się `obraz.adf.nowy`,
+  a `gw` wybiera przekształcenie po rozszerzeniu i odrzuca nieznane —
+  napęd nawet nie ruszał. Plik roboczy zachowuje teraz rozszerzenie
+  nośnika. W raporcie widnieje obraz użytkownika, a nie plik roboczy.
+- Atrapa `gw` w testach odrzuca nieznane rozszerzenia tak jak prawdziwa;
+  wcześniej przyjmowała dowolne i przepuściła ten błąd.
+
+## 1.2.1
+
+- Mapa zebranych danych znika przy nowej operacji. Zostawiona z poprzedniej
+  dyskietki pokazywała komplet, gdy bieżący odczyt był dopiero w połowie.
+- Przy dokładaniu do istniejącego pliku dolna mapa pokazuje jego stan od
+  razu, a nie dopiero po zakończeniu odczytu.
+
+## 1.2
+
+- Składanie obrazu z kilku odczytów. Gdy wskazany plik już istnieje, okno
+  pyta, czy dołożyć do niego brakujące sektory. Różne odczyty tej samej
+  dyskietki gubią różne sektory, więc kilka podejść daje razem komplet,
+  którego żadne z osobna nie dało — sprawdzone na dyskietce Amigi, gdzie
+  cztery odczyty różniły się jednym sektorem.
+- Druga mapa pod pierwszą pokazuje **zebrane dane**: kolumny obu map
+  pokrywają się, więc widać zarazem przebieg bieżącego odczytu i stan
+  całego obrazu. Licznik podaje, ile sektorów zebrano i ile przybyło.
+- Dziury rozpoznawane są po wypełnieniu, którym `gw` zastępuje nieodczytany
+  sektor. Sektor z samych zer to prawidłowe dane i nigdy nie jest uznawany
+  za brakujący.
+- Raport z każdego przejścia zapisuje się obok obrazu, z numerem przejścia
+  w nazwie (`Titan-przejscie-1.txt`).
+
 ## 1.1
 
 - Liczba prób odczytu na ścieżkę do ustawienia w oknie Greaseweazle

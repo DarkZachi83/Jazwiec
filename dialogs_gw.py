@@ -480,10 +480,25 @@ class GwDialog(tk.Toplevel):
         nosnik = gwbridge.NOSNIKI[self.var_format.get()]
         self.mapa = TrackMap(body, app.f_small, nosnik.cylindry,
                              nosnik.glowice)
-        self.mapa.pack(fill="x", pady=(10, 2))
+        tk.Label(body, text=app.t("gw_this_pass"), bg=PANEL, fg=TEXT,
+                 font=app.f_small, anchor="w").pack(fill="x", pady=(10, 0))
+        self.mapa.pack(fill="x", pady=(0, 2))
         self.mapa.bind("<Motion>", self._najechanie, add="+")
         self.mapa.bind("<Leave>", lambda e: self._pokaz_szczegoly(None),
                        add="+")
+
+        # Druga mapa: co jest juz w pliku, zebrane ze wszystkich przejsc.
+        # Kolumny obu map pokrywaja sie, wiec spojrzenie w dol jednej
+        # kolumny mowi wszystko o danym cylindrze.
+        tk.Label(body, text=app.t("gw_collected"), bg=PANEL, fg=TEXT,
+                 font=app.f_small, anchor="w").pack(fill="x", pady=(6, 0))
+        self.mapa_zebrane = TrackMap(body, app.f_small, nosnik.cylindry,
+                                     nosnik.glowice)
+        self.mapa_zebrane.pack(fill="x", pady=(0, 2))
+        self.lbl_zebrane = tk.Label(body, text=app.t("gw_collected_none"),
+                                    bg=PANEL, fg=HINT, font=app.f_small,
+                                    anchor="w")
+        self.lbl_zebrane.pack(fill="x")
 
         legenda = tk.Frame(body, bg=PANEL)
         legenda.pack(fill="x", pady=(2, 4))
@@ -674,7 +689,8 @@ class GwDialog(tk.Toplevel):
         # gw wybiera przeksztalcenie po rozszerzeniu: .adf dla Amigi,
         # .st dla Atari, .img dla peceta. Zle rozszerzenie konczy sie
         # obrazem, ktorego zaden emulator nie otworzy.
-        koncowka = gwbridge.NOSNIKI[format_].rozszerzenie
+        nosnik = gwbridge.NOSNIKI[format_]
+        koncowka = nosnik.rozszerzenie
         cel = filedialog.asksaveasfilename(
             parent=self, title=app.t("gw_pick_save"),
             defaultextension=koncowka, initialfile="dyskietka" + koncowka,
@@ -684,7 +700,19 @@ class GwDialog(tk.Toplevel):
         if not cel:
             return
 
+        # Gdy plik juz jest, pytamy: dolozyc brakujace sektory czy nadpisac.
+        # Rozne odczyty tej samej dyskietki gubia rozne sektory, wiec kilka
+        # podejsc daje razem komplet, nawet gdy zadne z osobna go nie dalo.
+        skladaj = False
+        if os.path.isfile(cel) and os.path.getsize(cel) == nosnik.rozmiar:
+            odpowiedz = messagebox.askyesnocancel(
+                APP_NAME, app.t("gw_merge_ask", path=cel), parent=self)
+            if odpowiedz is None:
+                return
+            skladaj = odpowiedz
+
         def po(raport):
+            self._pokaz_zebrane(cel, raport)
             # O otwarcie obrazu pytamy tylko wtedy, gdy naprawde powstal.
             # Po przerwanej pracy gw - na przyklad po wyjeciu przewodu USB -
             # pliku nie ma wcale, a pytanie konczylo sie bledem "nie ma
@@ -704,11 +732,49 @@ class GwDialog(tk.Toplevel):
         # siegac po swoje zmienne z watku w tle - wywolanie stamtad konczy
         # sie bledem "main thread is not in main loop" i praca przepada.
         proby = self.liczba_prob()
-        self._uruchom(
-            app.t("gw_reading"),
-            lambda postep: gwbridge.read_to_image(
-                cel, format_, naped, progress=postep, retries=proby),
-            po, przycisk=self.btn_read)
+
+        def zadanie(postep):
+            if not skladaj:
+                return gwbridge.read_to_image(cel, format_, naped,
+                                              progress=postep, retries=proby)
+            # Czytamy obok, a obraz podmieniamy dopiero po udanym zlozeniu -
+            # dotychczasowa praca nie moze przepasc przez nieudany odczyt.
+            # Plik roboczy musi zachowac rozszerzenie nosnika: gw wybiera
+            # przeksztalcenie wlasnie po nim i odrzuca nieznane koncowki.
+            import tempfile
+            uchwyt, roboczy = tempfile.mkstemp(
+                dir=os.path.dirname(os.path.abspath(cel)),
+                prefix=".jazwiec-", suffix=koncowka)
+            os.close(uchwyt)
+            try:
+                raport = gwbridge.read_to_image(roboczy, format_, naped,
+                                                progress=postep,
+                                                retries=proby)
+                if os.path.isfile(roboczy) \
+                        and os.path.getsize(roboczy) == nosnik.rozmiar:
+                    with open(cel, "rb") as fh:
+                        stary = fh.read()
+                    with open(roboczy, "rb") as fh:
+                        nowy = fh.read()
+                    raport.merge = gwbridge.merge_images(
+                        stary, nowy, nosnik.bajty_sektora)
+                    with open(cel, "wb") as fh:
+                        fh.write(raport.merge.data)
+                # W raporcie ma byc obraz uzytkownika, a nie plik roboczy.
+                raport.image_path = os.path.abspath(cel)
+                return raport
+            finally:
+                try:
+                    os.remove(roboczy)
+                except OSError:
+                    pass
+
+        self._uruchom(app.t("gw_reading"), zadanie, po,
+                      przycisk=self.btn_read)
+        if skladaj:
+            # Przy dokladaniu od razu widac, co juz jest w pliku - dolna
+            # mapa zapelnia sie wtedy w trakcie odczytu, a nie po nim.
+            self._pokaz_zebrane(cel, None)
 
     def zapis(self) -> None:
         app = self.app
@@ -796,6 +862,12 @@ class GwDialog(tk.Toplevel):
         self._migawka = {}
         self._geometria_z_formatu()
         self.mapa.wyczysc()
+        # Zebrane dane dotycza konkretnego obrazu, wiec przy nowej operacji
+        # znikaja. Zostawione z poprzedniej dyskietki pokazywaly komplet,
+        # gdy biezacy odczyt byl dopiero w polowie.
+        self.mapa_zebrane.wyczysc()
+        self.lbl_zebrane.configure(text=self.app.t("gw_collected_none"),
+                                   fg=HINT)
         self._pokaz("")
         self.lbl_progress.configure(text=opis, fg=ACCENT)
 
@@ -859,6 +931,55 @@ class GwDialog(tk.Toplevel):
         if self._po_zakonczeniu is not None:
             self._po_zakonczeniu(raport)
 
+    def _pokaz_zebrane(self, obraz: str, raport) -> None:
+        """Druga mapa i licznik: co jest w pliku po tym przejsciu."""
+        app = self.app
+        nosnik = gwbridge.NOSNIKI[self.var_format.get()]
+        try:
+            with open(obraz, "rb") as fh:
+                dane = fh.read()
+        except OSError:
+            return
+        # Bez sprawdzenia rozmiaru licznik potrafil pokazac komplet sektorow
+        # dla pliku zupelnie innego nosnika - zestawiamy go tylko z formatem,
+        # do ktorego pasuje.
+        if len(dane) != nosnik.rozmiar:
+            self.mapa_zebrane.wyczysc()
+            self.lbl_zebrane.configure(
+                text=app.t("gw_collected_other", size=len(dane)), fg=ALERT)
+            self._zapisz_raport_przejscia(obraz, raport)
+            return
+        self.mapa_zebrane.pokaz(gwbridge.coverage(dane, nosnik))
+        brakuje = len(gwbridge.missing_sectors(dane, nosnik.bajty_sektora))
+        wszystkie = nosnik.sciezki * nosnik.sektory
+        opis = app.t("gw_collected_count", done=wszystkie - brakuje,
+                     total=wszystkie)
+        if raport is not None and raport.merge is not None \
+                and raport.merge.recovered:
+            opis += "   " + app.t("gw_merge_new",
+                                  count=raport.merge.recovered)
+        self.lbl_zebrane.configure(text=opis, fg=GOOD if not brakuje else TEXT)
+        self._zapisz_raport_przejscia(obraz, raport)
+
+    def _zapisz_raport_przejscia(self, obraz: str, raport) -> None:
+        """
+        Raport ladujacy obok obrazu, z numerem przejscia w nazwie.
+
+        Przy kolejnych podejsciach do tej samej dyskietki widac wtedy, co
+        ktore przyniosło - a obraz nie wedruje dalej bez swojej historii.
+        """
+        if raport is None or raport.cancelled or raport.fatal:
+            return
+        cel = gwbridge.report_name(obraz)
+        try:
+            with open(cel, "w", encoding="utf-8") as fh:
+                fh.write(raport.text() + "\n")
+            hand_back(cel)
+        except OSError:
+            return
+        self.lbl_progress.configure(
+            text=self.app.t("gw_report_saved", path=cel), fg=GOOD)
+
     # -- mapa sciezek ------------------------------------------------------
 
     def _format_zmieniony(self) -> None:
@@ -872,7 +993,8 @@ class GwDialog(tk.Toplevel):
 
     def _geometria_z_formatu(self) -> None:
         nosnik = gwbridge.NOSNIKI[self.var_format.get()]
-        self.mapa.geometria(nosnik.cylindry, nosnik.glowice)
+        for mapa in (self.mapa, self.mapa_zebrane):
+            mapa.geometria(nosnik.cylindry, nosnik.glowice)
 
     def _stany_do_pokazania(self, trwa: bool) -> dict:
         """

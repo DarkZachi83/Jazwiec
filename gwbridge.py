@@ -81,6 +81,12 @@ __all__ = [
     "read_to_image",
     "write_image",
     "format_disk",
+    "merge_images",
+    "missing_sectors",
+    "coverage",
+    "report_name",
+    "MergeResult",
+    "BAD_FILL",
     "parse_log",
     "set_language",
 ]
@@ -286,6 +292,11 @@ _T = {
                          "wymaga {need} B.",
         "map_title": "Mapa sektorow (jak w gw):",
         "map_legend": "  .  sektor odczytany      X  sektor nieczytelny",
+        "merge_size": "Obrazy maja rozne rozmiary: {old} B i {new} B.",
+        "merge_title": "Skladanie z poprzednimi przejsciami:",
+        "merge_before": "Brakowalo przed tym przejsciem:",
+        "merge_recovered": "Odzyskane w tym przejsciu:",
+        "merge_missing": "Nadal brakuje:",
         "map_tracks_title": "Mapa sciezek:",
         "map_tracks_legend": "  .  sciezka zapisana      X  sciezka "
                              "niezapisana",
@@ -381,6 +392,11 @@ _T = {
                          "needs {need} B.",
         "map_title": "Sector map (as printed by gw):",
         "map_legend": "  .  sector read           X  sector unreadable",
+        "merge_size": "The images differ in size: {old} B and {new} B.",
+        "merge_title": "Merged with earlier passes:",
+        "merge_before": "Missing before this pass:",
+        "merge_recovered": "Recovered in this pass:",
+        "merge_missing": "Still missing:",
         "map_tracks_title": "Track map:",
         "map_tracks_legend": "  .  track written          X  track not "
                              "written",
@@ -605,6 +621,9 @@ class GwReport:
     # gw write weryfikuje zapis sam i potwierdza to jednym zdaniem na koncu:
     # "All tracks verified". Bez tego zdania nie wiemy, czy weryfikacja byla.
     verified: bool = False
+    # Wynik zlozenia z poprzednimi przejsciami, gdy odczyt dokladal sektory
+    # do juz istniejacego obrazu.
+    merge: "MergeResult | None" = None
     log: list[str] = field(default_factory=list)
     started: datetime.datetime = field(default_factory=datetime.datetime.now)
     finished: datetime.datetime | None = None
@@ -854,6 +873,15 @@ class GwReport:
             wiersze.append(_t("heads"))
             for glowica, (ok, n) in self.head_stats().items():
                 wiersze.append(_t("head_line", head=glowica, ok=ok, total=n))
+            if self.merge is not None:
+                szer_scal = 2 + max(len(_t(k)) for k in (
+                    "merge_before", "merge_recovered", "merge_missing"))
+                wiersze += ["", _t("merge_title")]
+                for klucz, wartosc in (("merge_before", self.merge.before),
+                                       ("merge_recovered",
+                                        self.merge.recovered),
+                                       ("merge_missing", self.merge.missing)):
+                    wiersze.append(f"  {_t(klucz):<{szer_scal}}{wartosc}")
             if self.bad_sectors:
                 wiersze += ["", _t("bad_list")]
                 numery = self.bad_sectors
@@ -1145,6 +1173,121 @@ def format_disk(format_key: str = "1440", drive: str = DEFAULT_DRIVE,
             os.remove(tymczasowy)
         except OSError:
             pass
+
+
+
+# --------------------------------------------------------------------------
+#  Skladanie obrazu z kilku odczytow
+# --------------------------------------------------------------------------
+
+# gw wypelnia tym napisem kazdy sektor, ktorego nie zdolal odczytac -
+# powtorzonym przez cala dlugosc sektora. Dzieki temu dziury rozpoznaje sie
+# w gotowym pliku, bez zadnych notatek obok.
+BAD_FILL = b"-=[BAD SECTOR]=-"
+
+
+def missing_sectors(dane: bytes, rozmiar_sektora: int) -> set[int]:
+    """
+    Numery sektorow, ktore sa wypelnieniem zamiast danymi.
+
+    Rozpoznajemy wylacznie wzor gw. Sektor z samych zer to prawidlowe dane -
+    pusty obszar dyskietki wyglada wlasnie tak i nie wolno go uznac za
+    dziure, bo przy skladaniu nadpisalibysmy dobra tresc.
+    """
+    if rozmiar_sektora <= 0:
+        return set()
+    wzor = (BAD_FILL * (rozmiar_sektora // len(BAD_FILL) + 1))[:rozmiar_sektora]
+    return {
+        numer for numer in range(len(dane) // rozmiar_sektora)
+        if dane[numer * rozmiar_sektora:(numer + 1) * rozmiar_sektora] == wzor
+    }
+
+
+@dataclass
+class MergeResult:
+    """Wynik zlozenia dwoch odczytow tej samej dyskietki."""
+
+    data: bytes
+    before: int                 # brakowalo przed zlozeniem
+    recovered: int              # odzyskane w tym przejsciu
+    missing: int                # nadal brakuje
+    sectors: set[int] = field(default_factory=set)   # nadal brakujace
+
+    @property
+    def total(self) -> int:
+        return len(self.data) // 512 if self.data else 0
+
+
+def merge_images(stary: bytes, nowy: bytes,
+                 rozmiar_sektora: int = 512) -> MergeResult:
+    """
+    Sklada dwa odczyty: bierze z nowego te sektory, ktorych brakowalo.
+
+    Dobre sektory z poprzednich przejsc zostaja nietkniete - nowy odczyt
+    moze miec dziury w innych miejscach. Rozne odczyty tej samej dyskietki
+    gubia rozne sektory, wiec kilka podejsc daje razem komplet, nawet gdy
+    zadne z osobna go nie dalo.
+    """
+    if len(stary) != len(nowy):
+        raise GwError(_t("merge_size", old=len(stary), new=len(nowy)))
+    brakujace = missing_sectors(stary, rozmiar_sektora)
+    nadal = missing_sectors(nowy, rozmiar_sektora)
+    odzyskane = sorted(brakujace - nadal)
+    if odzyskane:
+        dane = bytearray(stary)
+        for numer in odzyskane:
+            poczatek = numer * rozmiar_sektora
+            dane[poczatek:poczatek + rozmiar_sektora] = \
+                nowy[poczatek:poczatek + rozmiar_sektora]
+        wynik = bytes(dane)
+    else:
+        wynik = stary
+    zostalo = brakujace & nadal
+    return MergeResult(data=wynik, before=len(brakujace),
+                       recovered=len(odzyskane), missing=len(zostalo),
+                       sectors=zostalo)
+
+
+def coverage(dane: bytes, nosnik: "Nosnik") -> dict[tuple[int, int], str]:
+    """
+    Stan zebranych danych dla kazdej sciezki obrazu.
+
+    ok        - wszystkie sektory sciezki sa w pliku,
+    retried   - czesc sektorow odzyskana, czesci brak,
+    bad       - cala sciezka to wypelnienie,
+    pending   - poza obrazem (plik krotszy, niz powinien byc).
+    """
+    brakujace = missing_sectors(dane, nosnik.bajty_sektora)
+    obecne = len(dane) // nosnik.bajty_sektora
+    stan: dict[tuple[int, int], str] = {}
+    for indeks in range(nosnik.sciezki):
+        cyl, glowica = divmod(indeks, nosnik.glowice)
+        od = indeks * nosnik.sektory
+        if od + nosnik.sektory > obecne:
+            stan[(cyl, glowica)] = "pending"
+            continue
+        ile = sum(1 for s in range(od, od + nosnik.sektory) if s in brakujace)
+        stan[(cyl, glowica)] = ("ok" if ile == 0
+                                else "bad" if ile == nosnik.sektory
+                                else "retried")
+    return stan
+
+
+def report_name(obraz: str) -> str:
+    """
+    Nazwa pliku raportu obok obrazu: nazwa obrazu i numer przejscia.
+
+    Numer bierze sie z tego, ile raportow juz lezy obok - dzieki temu
+    kolejne podejscia do tej samej dyskietki zostaja w porzadku i wiadomo,
+    ktore co przyniosło.
+    """
+    katalog = os.path.dirname(os.path.abspath(obraz))
+    rdzen = os.path.splitext(os.path.basename(obraz))[0]
+    numer = 1
+    while os.path.exists(os.path.join(katalog,
+                                      f"{rdzen}-przejscie-{numer}.txt")):
+        numer += 1
+    return os.path.join(katalog, f"{rdzen}-przejscie-{numer}.txt")
 
 
 # --------------------------------------------------------------------------

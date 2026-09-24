@@ -153,6 +153,29 @@ needed retries and, when there are any, suggests reading the disk again. The
 giving up on a track; from the command line `--retries` does the same and
 `--seek-retries` additionally makes the head travel to the track anew.
 
+### Building one image from several reads
+
+Different reads of the same floppy lose different sectors, so several passes
+together can yield a complete image where no single pass did — verified on an
+Amiga disk whose four reads differed by exactly one sector.
+
+When the file you point at already exists, the window asks whether to fill in
+the sectors it is missing or to overwrite it. A second map below the first
+shows the **collected data**: the columns of both maps line up, so a glance
+down one column tells you both how the current pass went and what the image
+holds overall. The counter says how many sectors have been gathered and how
+many the latest pass added.
+
+Holes are recognised by the filler `gw` writes in place of a sector it could
+not read. A sector of zeros is valid data — an empty area of a floppy looks
+exactly like that — and is never treated as missing, because that would
+overwrite good content during a merge.
+
+The new read goes to a file alongside and replaces the image only once the
+merge succeeds, so work already gathered cannot be lost to a failed pass.
+A report from every pass is saved next to the image, numbered in its name
+(`Titan-przejscie-1.txt`).
+
 The module also works from the command line:
 
 ```bash
