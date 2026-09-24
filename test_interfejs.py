@@ -282,6 +282,29 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
         self.probki = gw_samples
         self.app = gui_main.RetroZachar()
         self.addCleanup(self.app.quit_app)
+        self.zamknij_okna_dialogowe()
+
+    def zamknij_okna_dialogowe(self):
+        """
+        Kazde okno pytajace dostaje z gory odpowiedz odmowna.
+
+        Okno napedu pyta w kilku miejscach - o plik, o otwarcie obrazu,
+        o skladanie z poprzednim przejsciem. Pytanie bez podstawionej
+        odpowiedzi nie konczy sie niepowodzeniem testu, tylko zawieszeniem
+        calego zestawu, bo nikt go nie zamknie. Test, ktory tego potrzebuje,
+        podmienia wybrana odpowiedz u siebie.
+        """
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        import tkinter.simpledialog as sd
+        for modul, nazwa, odpowiedz in (
+                (fd, "asksaveasfilename", ""), (fd, "askopenfilename", ""),
+                (fd, "askdirectory", ""), (mb, "askyesno", False),
+                (mb, "askyesnocancel", False), (mb, "showerror", None),
+                (mb, "showwarning", None), (mb, "showinfo", None),
+                (sd, "askstring", None)):
+            self.addCleanup(setattr, modul, nazwa, getattr(modul, nazwa))
+            setattr(modul, nazwa, lambda *a, _w=odpowiedz, **k: _w)
 
     def czekaj(self, warunek, sekundy=20.0):
         import time
@@ -778,6 +801,39 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
             fh.write(bytes(1474560))
         okno._pokaz_zebrane(obcy, None)
         self.assertIn("innego nosnika", okno.lbl_zebrane.cget("text"))
+
+    def test_okno_pamieta_wlasny_katalog(self):
+        """
+        Zgloszenie z uzytkowania: okno wyboru zawsze wracalo do katalogu
+        z okna glownego, a nie tam, gdzie ostatnio zgrywano dyskietki.
+        """
+        import tkinter.filedialog as fd
+        podstaw_gw(self, odczyt=self.probki.pelny_odczyt())
+        katalog = self.sciezka("Zgrywy Amiga")
+        os.makedirs(katalog)
+        self.app.config_data["outdir"] = self.katalog
+        podane = []
+        fd.asksaveasfilename = lambda **k: (podane.append(k["initialdir"])
+                                            or os.path.join(katalog, "a.img"))
+
+        okno = self.otworz()
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.assertEqual(podane[0], self.katalog,
+                         "pierwszy raz startuje od katalogu na obrazy")
+        self.assertEqual(self.app.config_data["gwdir"], katalog)
+
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.assertEqual(podane[1], katalog,
+                         "drugi raz od miejsca ostatniego zgrywania")
+
+        okno.destroy()
+        self.app.open_gw_panel()
+        nowe_okno = self.app._gw_window
+        self.addCleanup(nowe_okno.destroy)
+        self.assertEqual(nowe_okno._katalog_startowy(), katalog,
+                         "po ponownym otwarciu okna tez")
 
     def test_zakladki_rodzin_nosnikow(self):
         """

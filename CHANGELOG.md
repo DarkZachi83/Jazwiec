@@ -2,6 +2,15 @@
 
 Numery wersji odpowiadają wartości `APP_VERSION` w `styles.py`.
 
+## 1.2.3
+
+- Okno Greaseweazle pamięta własny katalog. Wcześniej brało go z ustawienia
+  okna głównego („gdzie zapisać obrazy") i nigdy nie aktualizowało, więc
+  każde okno wyboru wracało w to samo miejsce sprzed wielu dyskietek.
+- Testy okna dostają z góry odmowną odpowiedź na każde pytanie. Pytanie bez
+  podstawionej odpowiedzi nie kończyło się niepowodzeniem, tylko
+  zawieszeniem całego zestawu.
+
 ## 1.2.2
 
 - Składanie obrazu nie działało: plik roboczy nazywał się `obraz.adf.nowy`,

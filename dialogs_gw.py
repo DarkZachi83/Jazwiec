@@ -661,6 +661,27 @@ class GwDialog(tk.Toplevel):
 
     # -- operacje ----------------------------------------------------------
 
+    def _katalog_startowy(self) -> str:
+        """
+        Katalog, od ktorego startuja okna wyboru pliku.
+
+        Wlasna pamiec okna napedu, a nie katalog na obrazy z okna glownego.
+        Ten ostatni nie zmienial sie przy zgrywaniu, wiec kazde okno wyboru
+        wracalo w to samo miejsce sprzed wielu dyskietek.
+        """
+        dane = self.app.config_data
+        for klucz in ("gwdir", "outdir"):
+            sciezka = dane.get(klucz)
+            if sciezka and os.path.isdir(sciezka):
+                return sciezka
+        return str(_real_home())
+
+    def _zapamietaj_katalog(self, plik: str) -> None:
+        katalog = os.path.dirname(os.path.abspath(plik))
+        if self.app.config_data.get("gwdir") != katalog:
+            self.app.config_data["gwdir"] = katalog
+            self.app._save_config()
+
     def liczba_prob(self) -> int:
         """Liczba prob na sciezke z pola, sprowadzona do dozwolonego zakresu."""
         try:
@@ -694,11 +715,12 @@ class GwDialog(tk.Toplevel):
         cel = filedialog.asksaveasfilename(
             parent=self, title=app.t("gw_pick_save"),
             defaultextension=koncowka, initialfile="dyskietka" + koncowka,
-            initialdir=app.config_data.get("outdir", str(_real_home())),
+            initialdir=self._katalog_startowy(),
             filetypes=[(app.t("dlg_filter_images"), "*" + koncowka),
                        (app.t("dlg_filter_all"), "*.*")])
         if not cel:
             return
+        self._zapamietaj_katalog(cel)
 
         # Gdy plik juz jest, pytamy: dolozyc brakujace sektory czy nadpisac.
         # Rozne odczyty tej samej dyskietki gubia rozne sektory, wiec kilka
@@ -785,13 +807,14 @@ class GwDialog(tk.Toplevel):
         zrodlo = filedialog.askopenfilename(
             parent=self, title=app.t("gw_pick_open"),
             initialdir=str(otwarty.parent) if otwarty
-            else app.config_data.get("outdir", str(_real_home())),
+            else self._katalog_startowy(),
             initialfile=otwarty.name if otwarty else "",
             filetypes=[(app.t("dlg_filter_images"),
                         "*" + gwbridge.NOSNIKI[format_].rozszerzenie),
                        (app.t("dlg_filter_all"), "*.*")])
         if not zrodlo:
             return
+        self._zapamietaj_katalog(zrodlo)
 
         # Obrazy dyskietek maja jednoznaczne rozmiary, wiec zamiast odrzucac
         # obraz innego formatu surowymi liczbami, rozpoznajemy go i pytamy.
@@ -1074,11 +1097,12 @@ class GwDialog(tk.Toplevel):
         cel = filedialog.asksaveasfilename(
             parent=self, title=app.t("dlg_save_report"),
             defaultextension=".txt", initialfile="raport_gw.txt",
-            initialdir=app.config_data.get("outdir", str(_real_home())),
+            initialdir=self._katalog_startowy(),
             filetypes=[(app.t("filter_text"), "*.txt"),
                        (app.t("dlg_filter_all"), "*.*")])
         if not cel:
             return
+        self._zapamietaj_katalog(cel)
         try:
             with open(cel, "w", encoding="utf-8") as fh:
                 fh.write(self.raport.text() + "\n")
