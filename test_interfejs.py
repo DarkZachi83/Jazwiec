@@ -1182,5 +1182,172 @@ class PodzialRaportuNaBloki(unittest.TestCase):
         self.assertEqual(bloki, [(["A", "B"], False)])
 
 
+@unittest.skipUnless(_okno_dostepne(), "brak serwera graficznego")
+class ObrazDyskuWOknie(PrzypadekZKatalogiem):
+    """
+    Obraz dysku twardego ma sie otwierac tak jak dyskietka, tylko bez
+    mozliwosci zapisu.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import gui_main
+        self.app = gui_main.RetroZachar()
+        self.addCleanup(self.app.quit_app)
+        # Okno wyboru partycji jest modalne: bez podstawionej odpowiedzi
+        # test nie padnie, tylko zawiesi caly zestaw. Podmieniamy to, po co
+        # siega samo okno, a nie klase w module obok.
+        self.pytania = []
+        self.addCleanup(setattr, gui_main, "wybierz_partycje",
+                        gui_main.wybierz_partycje)
+        self.odpowiedz = None
+        gui_main.wybierz_partycje = self._wybor
+        # Okno bledu jest rownie modalne jak okno wyboru. Zamiast zawieszac
+        # zestaw, blad ma przerwac test z czytelna trescia.
+        self.app._error = self._blad
+
+    def _blad(self, wyjatek):
+        raise AssertionError(f"okno pokazalo blad: {wyjatek}")
+
+    def _wybor(self, master, partycje, biezaca=None):
+        self.pytania.append([p.index for p in partycje])
+        return self.odpowiedz
+
+    def dysk(self, partycji: int = 1) -> str:
+        from test_fat16 import BudowniczyFat, wpis_partycji
+        sciezka = self.sciezka("dysk.img")
+        pierwsza = BudowniczyFat(etykieta="DOS").plik("CONFIG.SYS", b"FILES=30")
+        mbr = bytearray(512)
+        mbr[446:462] = wpis_partycji(0x06, 63, pierwsza.sektorow)
+        mbr[510:512] = b"\x55\xaa"
+        tresc = bytes(mbr) + bytes(62 * 512) + pierwsza.zbuduj()
+        if partycji > 1:
+            druga = BudowniczyFat(etykieta="DANE").plik("B.TXT", b"bbb")
+            start2 = 63 + pierwsza.sektorow + 63
+            mbr[462:478] = wpis_partycji(0x06, start2, druga.sektorow)
+            mbr[510:512] = b"\x55\xaa"
+            tresc = (bytes(mbr) + bytes(62 * 512) + pierwsza.zbuduj()
+                     + bytes(63 * 512) + druga.zbuduj())
+        with open(sciezka, "wb") as fh:
+            fh.write(tresc)
+        return sciezka
+
+    def test_otwiera_sie_jak_dyskietka(self):
+        from pathlib import Path
+        self.app._open_path(Path(self.dysk()))
+        self.app.update()
+        self.assertIsNotNone(self.app.image)
+        self.assertIn("FAT16", self.app.image.format_name)
+        self.assertEqual([w.name for w in self.app.image.listdir("/")],
+                         ["CONFIG.SYS"])
+
+    def test_przyciski_zapisu_sa_zablokowane(self):
+        """
+        Obraz dysku jest tylko do odczytu i okno musi to wiedziec. Wczesniej
+        zakladalo, ze kazdy otwarty plik da sie zmieniac, wiec przyciski
+        byly czynne, a klikniecie konczylo sie bledem.
+        """
+        from pathlib import Path
+        self.app._open_path(Path(self.dysk()))
+        self.app.update()
+        self.assertTrue(self.app.image_readonly)
+        czynne = [w for w in getattr(self.app, "_writable_list", [])
+                  if str(w.cget("state")) == "normal"]
+        self.assertEqual(czynne, [], "zaden przycisk zapisu nie moze dzialac")
+
+    def test_litera_napedu_i_opis(self):
+        from pathlib import Path
+        self.app._open_path(Path(self.dysk()))
+        self.app.update()
+        self.assertTrue(self.app.var_location.get().startswith("C:"))
+        self.assertIn("Plik:", self.app.var_filepath.get())
+
+    def test_wybor_partycji(self):
+        from pathlib import Path
+        self.odpowiedz = 2
+        self.app._open_path(Path(self.dysk(partycji=2)))
+        self.app.update()
+        self.assertEqual(self.pytania, [[1, 2]],
+                         "przy dwoch partycjach okno pyta od razu")
+        self.assertEqual(self.app.image.partition_index, 2)
+        self.assertEqual(self.app.image.get_label(), "DANE")
+        self.assertEqual([w.name for w in self.app.image.listdir("/")],
+                         ["B.TXT"])
+        self.assertTrue(self.app.image_readonly)
+
+    def test_rezygnacja_zostawia_pierwsza(self):
+        from pathlib import Path
+        self.odpowiedz = None
+        self.app._open_path(Path(self.dysk(partycji=2)))
+        self.app.update()
+        self.assertEqual(self.app.image.partition_index, 1)
+        self.assertEqual(self.app.image.get_label(), "DOS")
+
+    def test_jedna_partycja_nie_pyta(self):
+        from pathlib import Path
+        import dialogs_disk
+        pytano = []
+
+        class Atrapa:
+            def __init__(self, *a, **k):
+                pytano.append(True)
+                self.wynik = None
+        stare = dialogs_disk.PartitionDialog
+        dialogs_disk.PartitionDialog = Atrapa
+        self.addCleanup(setattr, dialogs_disk, "PartitionDialog", stare)
+        self.app._open_path(Path(self.dysk()))
+        self.app.update()
+        self.assertEqual(pytano, [], "przy jednej partycji nie ma o co pytac")
+
+
+class WzorcePlikow(unittest.TestCase):
+    """
+    Zgloszenie z uzytkowania: 86Box zapisuje obrazy jako "210MB.VHD",
+    a okno wyboru ich nie pokazywalo. Tkinter pod Linuksem dopasowuje
+    wzorce doslownie, wiec "*.vhd" nie widzi pliku z duzych liter - pod
+    Windowsem ten sam wzorzec dziala i blad nie rzuca sie w oczy.
+    """
+
+    def wzorzec(self, rozszerzenie):
+        import system
+        return system.wzorzec_pliku(rozszerzenie)
+
+    def test_pasuje_bez_wzgledu_na_wielkosc_liter(self):
+        import fnmatch
+        wzorzec = self.wzorzec(".vhd")
+        for nazwa in ("210MB.VHD", "dysk.vhd", "Dysk.Vhd", "obraz.VhD"):
+            with self.subTest(nazwa=nazwa):
+                self.assertTrue(fnmatch.fnmatchcase(nazwa, wzorzec))
+
+    def test_nie_pasuje_do_innych_rozszerzen(self):
+        import fnmatch
+        wzorzec = self.wzorzec(".vhd")
+        for nazwa in ("obraz.img", "plik.txt", "vhd.txt"):
+            with self.subTest(nazwa=nazwa):
+                self.assertFalse(fnmatch.fnmatchcase(nazwa, wzorzec))
+
+    def test_cyfry_i_znaki_zostaja_bez_zmian(self):
+        self.assertEqual(self.wzorzec(".d64"), "*.[dD]64")
+
+    def test_pod_windowsem_postac_prosta(self):
+        """Okno Windowsa traktuje wzorce doslownie i nawiasow nie rozumie."""
+        import system
+        stare = system.os.name
+        system.os.name = "nt"
+        try:
+            self.assertEqual(system.wzorzec_pliku(".vhd"), "*.vhd")
+        finally:
+            system.os.name = stare
+
+    def test_okno_glowne_pokazuje_obrazy_dyskow(self):
+        import engines
+        import system
+        wzorce = system.wzorce_plikow(engines.all_extensions())
+        import fnmatch
+        self.assertTrue(any(fnmatch.fnmatchcase("210MB.VHD", w)
+                            for w in wzorce),
+                        "obraz z 86Boxa ma byc widoczny na liscie")
+
+
 if __name__ == "__main__":
     unittest.main()

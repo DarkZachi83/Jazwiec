@@ -24,7 +24,7 @@ from styles import (
     APP_NAME, SCREEN, PANEL, FRAME, TEXT, ACCENT, HINT, ALERT,
     GOOD, FIELD, Panel, ProgressBar,
 )
-from system import _real_home, hand_back
+from system import _real_home, hand_back, wzorce_plikow
 
 if TYPE_CHECKING:                  # tylko dla adnotacji - bez importu cyklicznego
     from gui_main import RetroZachar
@@ -205,7 +205,7 @@ class DriveDialog(tk.Toplevel):
             initialdir=app.config_data.get("outdir", str(_real_home())),
             filetypes=[
                 (app.t("dlg_filter_images"),
-                 ("*.img", "*.ima", "*.vfd", "*.dsk", "*.flp")),
+                 wzorce_plikow((".img", ".ima", ".vfd", ".dsk", ".flp"))),
                 (app.t("dlg_filter_all"), "*.*"),
             ],
         )
@@ -235,7 +235,7 @@ class DriveDialog(tk.Toplevel):
             initialdir=app.config_data.get("outdir", str(_real_home())),
             filetypes=[
                 (app.t("dlg_filter_images"),
-                 ("*.img", "*.ima", "*.vfd", "*.dsk", "*.flp")),
+                 wzorce_plikow((".img", ".ima", ".vfd", ".dsk", ".flp"))),
                 (app.t("dlg_filter_all"), "*.*"),
             ],
         )

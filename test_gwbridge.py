@@ -912,6 +912,28 @@ class SkladanieObrazow(PrzypadekZKatalogiem):
         self.assertTrue(
             gwbridge.report_name(obraz).endswith("Titan-przejscie-2.txt"))
 
+    def test_kompletny_obraz_jest_nazwany_wprost(self):
+        """
+        Rozpoznanie opisuje przejscie, a nie obraz. Przejscie z bledami
+        moze konczyc sie obrazem kompletnym, bo dobre dane sa juz w pliku -
+        i to trzeba powiedziec, zamiast straszyc uszkodzeniami.
+        """
+        gwbridge.set_language("pl")
+        r = gwbridge.parse_log(probki.pelny_odczyt({(70, 1)}), "1440")
+        pelny = self.obraz()
+        r.merge = gwbridge.merge_images(pelny, pelny)
+        tekst = r.text()
+        self.assertIn("Zebrany obraz jest kompletny", tekst)
+        self.assertNotIn("brakuje jeszcze", tekst)
+
+    def test_niepelny_obraz_zacheca_do_kolejnego_przejscia(self):
+        gwbridge.set_language("pl")
+        r = gwbridge.parse_log(probki.pelny_odczyt({(70, 1)}), "1440")
+        r.merge = gwbridge.merge_images(self.obraz({2, 5}), self.obraz({5}))
+        tekst = r.text()
+        self.assertIn("brakuje jeszcze 1", tekst)
+        self.assertNotIn("jest kompletny", tekst)
+
     def test_raport_pokazuje_zlozenie(self):
         gwbridge.set_language("pl")
         r = gwbridge.parse_log(probki.pelny_odczyt(), "1440")

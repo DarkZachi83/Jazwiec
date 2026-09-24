@@ -22,7 +22,7 @@ from styles import (
     APP_NAME, SCREEN, PANEL, FRAME, TEXT, ACCENT, HINT, ALERT,
     GOOD, FIELD, Panel, ProgressBar,
 )
-from system import _real_home, hand_back
+from system import _real_home, hand_back, wzorce_plikow
 
 if TYPE_CHECKING:                  # tylko dla adnotacji - bez importu cyklicznego
     from gui_main import RetroZachar
@@ -195,7 +195,7 @@ class KompletDialog(tk.Toplevel):
             parent=self, title=self.app.t("kpl_pick_boot"),
             initialdir=self.var_output.get() or str(_real_home()),
             filetypes=[(self.app.t("dlg_filter_images"),
-                        tuple("*" + s for s in engines.all_extensions())),
+                        wzorce_plikow(engines.all_extensions())),
                        (self.app.t("dlg_filter_all"), "*.*")])
         if wybor:
             self.var_boot.set(wybor)

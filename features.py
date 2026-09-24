@@ -48,3 +48,13 @@ except ImportError:
     gwbridge = None
     GwDialog = None
     GW_AVAILABLE = False
+
+# Obrazy dyskow twardych: silnik i okno wyboru partycji.
+try:
+    import fat16
+    from dialogs_disk import wybierz_partycje
+    DISKS_AVAILABLE = True
+except ImportError:
+    fat16 = None
+    wybierz_partycje = None
+    DISKS_AVAILABLE = False

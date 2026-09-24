@@ -19,7 +19,9 @@ import tkinter as tk
 from tkinter import ttk
 
 from fat12 import FLOPPY_FORMATS
-from features import DRIVES_AVAILABLE, GW_AVAILABLE, PACZKA_AVAILABLE
+from features import (
+    DISKS_AVAILABLE, DRIVES_AVAILABLE, GW_AVAILABLE, PACZKA_AVAILABLE,
+)
 from languages import LANGUAGE_NAMES
 from styles import (
     APP_NAME, APP_VERSION, SCREEN, PANEL, FRAME, TEXT, BRIGHT, ACCENT,
@@ -60,6 +62,9 @@ class PanelsMixin:
 
         disk = tk.Menu(bar, tearoff=0, **opts)
         item(disk, "menu_open", self.open_image, "F3")
+        if DISKS_AVAILABLE:
+            disk.add_command(label=self.t("menu_partition"),
+                             command=self.choose_partition)
         disk.add_command(label=self.t("menu_close"), command=self.close_image)
         disk.add_separator()
         if PACZKA_AVAILABLE:

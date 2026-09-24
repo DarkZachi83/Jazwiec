@@ -2,6 +2,68 @@
 
 Numery wersji odpowiadają wartości `APP_VERSION` w `styles.py`.
 
+## 1.6.1
+
+- Okno wyboru pliku pokazuje obrazy bez względu na wielkość liter
+  w rozszerzeniu. 86Box zapisuje dyski jako `210MB.VHD`, a Tkinter pod
+  Linuksem dopasowuje wzorce dosłownie, więc plik był niewidoczny i trzeba
+  było przełączać na „wszystkie pliki". Pod Windowsem ten sam wzorzec
+  działa, więc błąd ujawniał się tylko na jednym systemie.
+
+## 1.6
+
+- Obrazy dysków twardych otwierają się w oknie głównym: **Dyskietka →
+  Otwórz obraz**, tak samo jak dyskietki. Zawartość partycji widać
+  w prawym panelu razem z rozmiarami, datami i atrybutami.
+- Przyciski zmieniające zawartość są przy dysku wyłączone, bo obraz jest
+  tylko do odczytu. Wcześniej okno zakładało, że każdy otwarty plik da się
+  zapisać — przyciski były czynne, a kliknięcie kończyło się błędem.
+- Przy kilku czytelnych partycjach program pyta, którą pokazać, i pozwala
+  przełączyć ją później przez **Dyskietka → Wybierz partycję**. Partycje,
+  których nie umie czytać, wypisuje obok — żeby nie wyglądało, że dysk
+  jest mniejszy, niż jest.
+- Nagłówek i litera napędu rozróżniają dyskietkę od dysku: `A:` i `C:`.
+
+## 1.5
+
+- Nowy silnik `fat16.py`: odczyt partycji FAT16 i FAT12 z obrazów dysków
+  twardych. Czyta leniwie — żeby pokazać katalog, sięga po blok BPB, tablicę
+  FAT i obszar katalogu, a nie po cały dysk. O rodzaju FAT decyduje liczba
+  klastrów, tak samo jak liczył DOS, a nie napis w sektorze rozruchowym.
+- Obrazy dysków rozpoznaje warstwa silników, więc otwiera się je tą samą
+  drogą co dyskietki. Przy kilku partycjach program bierze pierwszą
+  czytelną; wskazanie innej jest już możliwe w module.
+- **Tylko do odczytu.** Każda próba zapisu kończy się czytelnym błędem.
+  Nadpisanie obrazu dysku w trakcie pracy maszyny niszczy cały system
+  plików, a nie jedną dyskietkę.
+- Sprawdzone na obrazie z 86Boxa: czyta katalog główny z `IO.SYS`,
+  `MSDOS.SYS`, `COMMAND.COM` i katalogami `DOS`, `WINDOWS`, `NC`.
+
+## 1.4
+
+- Nowy moduł `partitions.py`: tablica partycji obrazów dysków twardych,
+  razem z partycjami logicznymi wewnątrz rozszerzonej — na dyskach z epoki
+  `C:` bywa podstawowy, a `D:` i `E:` leżą właśnie tam. Obsługuje obrazy
+  VHD i surowe `.img`; o rodzaju decyduje zawartość pliku, nie nazwa.
+  Uszkodzony łańcuch ogniw nie zapętla programu.
+- `python3 partitions.py dysk.vhd` wypisuje partycje z typem, położeniem
+  i rozmiarem.
+
+## 1.3
+
+- Nowy moduł `vhd.py`: odczyt obrazów dysków twardych w formacie VHD,
+  w odmianie stałej i rozszerzalnej. Tę drugą zapisuje 86Box — dane leżą
+  w niej w blokach po 2 MB, a kolejność opisuje tablica; obszary, do których
+  nigdy nic nie zapisano, nie istnieją w pliku i czytają się jako zera.
+  Obrazy różnicowe program odrzuca z wyjaśnieniem, zamiast pokazywać
+  nieprawdziwą zawartość. Sprawdzone na obrazie z 86Boxa: rozpoznaje
+  geometrię, tablicę partycji i sektor rozruchowy DOS-a.
+  Odmiana stała oparta wyłącznie na opisie formatu — prawdziwego pliku
+  tego rodzaju nie mieliśmy.
+- Raport z odczytu mówi wprost, gdy zebrany obraz jest już kompletny.
+  Rozpoznanie opisuje pojedyncze przejście, więc przejście z błędami
+  potrafiło straszyć uszkodzeniami, choć w pliku niczego nie brakowało.
+
 ## 1.2.3
 
 - Okno Greaseweazle pamięta własny katalog. Wcześniej brało go z ustawienia

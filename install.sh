@@ -110,6 +110,13 @@ install -m 644 "$SOURCE_DIR/main.py" "$SOURCE_DIR/gui_main.py" \
                "$SOURCE_DIR/languages.py" "$SOURCE_DIR/dostext.py" \
                "$SOURCE_DIR/engines.py" "$LIB_DIR/"
 
+# Obrazy dyskow twardych: silnik FAT16 i okno wyboru partycji.
+if [ -f "$SOURCE_DIR/fat16.py" ]; then
+    install -m 644 "$SOURCE_DIR/fat16.py" "$SOURCE_DIR/partitions.py" \
+                   "$SOURCE_DIR/vhd.py" "$SOURCE_DIR/dialogs_disk.py" \
+                   "$LIB_DIR/"
+fi
+
 # Greaseweazle - niezalezny od stacji USB, dziala tylko przy zainstalowanym gw.
 if [ -f "$SOURCE_DIR/gwbridge.py" ]; then
     install -m 644 "$SOURCE_DIR/gwbridge.py" "$SOURCE_DIR/dialogs_gw.py" \

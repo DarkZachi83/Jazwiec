@@ -110,3 +110,29 @@ def _measure_folder(root: Path) -> tuple[int, int, int]:
             except OSError:
                 pass
     return files, dirs, total
+
+
+def wzorzec_pliku(rozszerzenie: str) -> str:
+    """
+    Wzorzec do okna wyboru pliku, dzialajacy bez wzgledu na wielkosc liter.
+
+    Tkinter pod Linuksem dopasowuje wzorce doslownie, wiec "*.vhd" nie
+    pokazuje pliku "210MB.VHD" - a tak wlasnie nazywa obrazy 86Box. Pod
+    Windowsem dopasowanie jest nieczule na wielkosc liter, wiec blad
+    ujawnia sie tylko na jednym systemie.
+
+    Rozwiazaniem jest wzorzec z klasami znakow: "*.[vV][hH][dD]". Okno
+    Windowsa traktuje jednak wzorce doslownie i takich nawiasow nie
+    rozumie, wiec tam zostawiamy postac prosta.
+    """
+    rozszerzenie = rozszerzenie.lstrip("*")
+    if os.name == "nt" or not rozszerzenie.startswith("."):
+        return "*" + rozszerzenie
+    litery = "".join(f"[{z.lower()}{z.upper()}]" if z.isalpha() else z
+                     for z in rozszerzenie[1:])
+    return "*." + litery
+
+
+def wzorce_plikow(rozszerzenia) -> tuple[str, ...]:
+    """Wzorce dla kilku rozszerzen naraz, w tej samej kolejnosci."""
+    return tuple(wzorzec_pliku(r) for r in rozszerzenia)

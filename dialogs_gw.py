@@ -33,7 +33,7 @@ from styles import (
     GOOD, FIELD,
     DIM, WARN, DRIVE, Panel,
 )
-from system import _real_home, _znajdz_ikone, hand_back
+from system import _real_home, _znajdz_ikone, hand_back, wzorzec_pliku
 
 if TYPE_CHECKING:                  # tylko dla adnotacji - bez importu cyklicznego
     from gui_main import RetroZachar
@@ -716,7 +716,8 @@ class GwDialog(tk.Toplevel):
             parent=self, title=app.t("gw_pick_save"),
             defaultextension=koncowka, initialfile="dyskietka" + koncowka,
             initialdir=self._katalog_startowy(),
-            filetypes=[(app.t("dlg_filter_images"), "*" + koncowka),
+            filetypes=[(app.t("dlg_filter_images"),
+                        wzorzec_pliku(koncowka)),
                        (app.t("dlg_filter_all"), "*.*")])
         if not cel:
             return
@@ -810,7 +811,8 @@ class GwDialog(tk.Toplevel):
             else self._katalog_startowy(),
             initialfile=otwarty.name if otwarty else "",
             filetypes=[(app.t("dlg_filter_images"),
-                        "*" + gwbridge.NOSNIKI[format_].rozszerzenie),
+                        wzorzec_pliku(
+                            gwbridge.NOSNIKI[format_].rozszerzenie)),
                        (app.t("dlg_filter_all"), "*.*")])
         if not zrodlo:
             return

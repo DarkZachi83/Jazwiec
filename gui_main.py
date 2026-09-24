@@ -54,7 +54,7 @@ except ImportError:
 
 from features import (
     DRIVES_AVAILABLE, GW_AVAILABLE, PACZKA_AVAILABLE, DriveDialog,
-    GwDialog, KompletDialog, usbfloppy,
+    GwDialog, KompletDialog, fat16, usbfloppy, wybierz_partycje,
 )
 from styles import StyleMixin
 from ui_panels import PanelsMixin
@@ -65,7 +65,7 @@ from styles import (
 )
 from dialogs_files import FolderDialog, TextEditor
 from system import (
-    CONFIG_FILE, hand_back,
+    CONFIG_FILE, hand_back, wzorce_plikow,
     _stamp, _human,
 )
 
@@ -264,7 +264,7 @@ class RetroZachar(StyleMixin, PanelsMixin, tk.Tk):
             initialdir=self.config_data.get("outdir", str(Path.home())),
             filetypes=[
                 (self.t("dlg_filter_images"),
-                 tuple("*" + s for s in engines.all_extensions())),
+                 wzorce_plikow(engines.all_extensions())),
                 (self.t("dlg_filter_all"), "*.*"),
             ],
         )
@@ -289,13 +289,59 @@ class RetroZachar(StyleMixin, PanelsMixin, tk.Tk):
         self.image = image
         self.image_path = path
         self.image_title = None
-        self.image_readonly = False
+        # Obrazy dyskow twardych sa tylko do odczytu i same to o sobie
+        # mowia. Wczesniej okno zakladalo, ze kazdy otwarty plik da sie
+        # zmieniac, wiec przyciski zapisu byly czynne i konczyly sie bledem.
+        self.image_readonly = bool(getattr(image, "read_only", False))
         self.image_stamp = _stamp(path)
         self.cwd = "/"
         self._refresh_controls()
         self.refresh_listing()
         self.status(self.t(
             "status_opened", name=path.name, fmt=image.format_name), "ok")
+        # Przy kilku czytelnych partycjach pytamy od razu, ktora pokazac -
+        # inaczej uzytkownik widzi pierwsza i nie wie, ze sa inne.
+        if self._partycje_do_wyboru() and wybierz_partycje is not None:
+            self.choose_partition(pytaj_zawsze=False)
+
+    def _obraz_dysku(self) -> bool:
+        """Czy otwarty obraz to dysk twardy, a nie dyskietka w napedzie."""
+        return hasattr(self.image, "partitions")
+
+    def _partycje_do_wyboru(self) -> bool:
+        partycje = getattr(self.image, "partitions", None) or []
+        return len([p for p in partycje if p.readable]) > 1
+
+    def choose_partition(self, pytaj_zawsze: bool = True) -> None:
+        """
+        Pokazuje inna partycje tego samego obrazu.
+
+        Obraz otwieramy od nowa, bo kazda partycja to osobny system plikow
+        i osobna tablica FAT.
+        """
+        if not self.image or wybierz_partycje is None:
+            return
+        partycje = getattr(self.image, "partitions", None) or []
+        if not partycje:
+            return
+        biezaca = getattr(self.image, "partition_index", None)
+        wybor = wybierz_partycje(self, partycje, biezaca)
+        if wybor is None or (not pytaj_zawsze and wybor == biezaca):
+            return
+        sciezka = self.image_path
+        try:
+            nowy = fat16.HardDiskImage(sciezka, partition=wybor)
+        except (ImageError, OSError) as exc:
+            self._error(exc)
+            return
+        self.image.close()
+        self.image = nowy
+        self.image_readonly = True
+        self.cwd = "/"
+        self._refresh_controls()
+        self.refresh_listing()
+        self.status(self.t("status_partition", index=wybor,
+                           label=nowy.get_label() or nowy.format_name), "ok")
 
     def close_image(self) -> None:
         if self.image:
@@ -436,13 +482,21 @@ class RetroZachar(StyleMixin, PanelsMixin, tk.Tk):
         if label:
             title += f"[{label}] "
         if self.image_readonly:
-            title += self.t("browse_readonly")
+            # Podglad dyskietki w napedzie i obraz dysku twardego sa oba
+            # tylko do odczytu, ale z zupelnie innych powodow - napis ma
+            # mowic, na co uzytkownik patrzy.
+            title += self.t("browse_readonly_disk" if self._obraz_dysku()
+                            else "browse_readonly")
         self.browser_panel.set_title(title)
+        # Litera napedu wedlug tego, na co patrzymy: dyskietki to A:,
+        # dyski twarde C:. Drobiazg, ale wprowadzalby w blad.
+        litera = "C:" if self._obraz_dysku() else "A:"
         self.var_location.set(
-            "A:" + self.cwd.replace("/", "\\")
+            litera + self.cwd.replace("/", "\\")
             + "        " + self.image.format_name
         )
-        key = "filepath_device" if self.image_readonly else "filepath"
+        key = ("filepath" if not self.image_readonly or self._obraz_dysku()
+               else "filepath_device")
         self.var_filepath.set(self.t(key, path=self.image_path))
         self._update_capacity()
 

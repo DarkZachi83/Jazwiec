@@ -297,6 +297,12 @@ _T = {
         "merge_before": "Brakowalo przed tym przejsciem:",
         "merge_recovered": "Odzyskane w tym przejsciu:",
         "merge_missing": "Nadal brakuje:",
+        "merge_complete": "Zebrany obraz jest kompletny - wszystkie sektory "
+                          "sa w pliku.\nBledy tego przejscia nie trafily do "
+                          "obrazu: program zachowal dobre\ndane z "
+                          "poprzednich podejsc.",
+        "merge_left": "W zebranym obrazie brakuje jeszcze {count} sektorow. "
+                      "Kolejne przejscie\nmoze je uzupelnic.",
         "map_tracks_title": "Mapa sciezek:",
         "map_tracks_legend": "  .  sciezka zapisana      X  sciezka "
                              "niezapisana",
@@ -397,6 +403,11 @@ _T = {
         "merge_before": "Missing before this pass:",
         "merge_recovered": "Recovered in this pass:",
         "merge_missing": "Still missing:",
+        "merge_complete": "The collected image is complete - every sector is "
+                          "in the file.\nThis pass's errors did not reach "
+                          "it: the good data from earlier passes\nwas kept.",
+        "merge_left": "The collected image is still missing {count} sectors. "
+                      "Another pass\nmay fill them in.",
         "map_tracks_title": "Track map:",
         "map_tracks_legend": "  .  track written          X  track not "
                              "written",
@@ -910,6 +921,12 @@ class GwReport:
         # za pierwszym razem zgubila 33 sektory, a za drugim zadnego.
         if rozpoznanie == "media" or self.retried_tracks:
             wiersze += ["", _t("retry_hint")]
+        # Rozpoznanie opisuje to przejscie. Gdy dokladamy do obrazu, liczy
+        # sie jednak stan calosci - przejscie z bledami moze konczyc sie
+        # obrazem kompletnym, bo dobre dane sa juz w pliku.
+        if self.merge is not None:
+            wiersze += ["", _t("merge_complete") if not self.merge.missing
+                        else _t("merge_left", count=self.merge.missing)]
         return "\n".join(wiersze)
 
 

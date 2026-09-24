@@ -21,6 +21,10 @@ na Linuksie i na Windowsie — i nie potrzebuje `sudo`.
 | `dialogs_drive.py` | okna napędów: lista, formatowanie, raport (z `usbfloppy.py`) |
 | `dialogs_diskset.py` | kreator kompletu dyskietek (z `diskset.py`) |
 | `gwbridge.py` | most do Greaseweazle: uruchamia `gw` i rozbiera jego wyjście |
+| `vhd.py` | odczyt obrazów dysków VHD |
+| `partitions.py` | tablica partycji obrazów dysków |
+| `fat16.py` | silnik FAT16/FAT12 dla dysków twardych |
+| `dialogs_disk.py` | okno wyboru partycji |
 | `dialogs_gw.py` | okno Greaseweazle (z `gwbridge.py`) |
 | `fat12.py` | silnik FAT12 — formatowanie i operacje na plikach |
 | `languages.py` | napisy interfejsu (polski, angielski) |
@@ -815,6 +819,37 @@ których nie wolno mu rozprowadzać. Zamiast tego przyjmuje gotowy obraz
 startowy jako podstawę pierwszej dyskietki i dopisuje instalator w wolnym
 miejscu. Dyskietkę przygotujesz poleceniem `FORMAT A: /S` w emulatorze
 i zapiszesz jako obraz.
+
+## Obrazy dysków twardych
+
+Obraz dysku otwiera się tak samo jak dyskietkę — **Dyskietka → Otwórz
+obraz**. Program czyta pliki VHD, w odmianie stałej i rozszerzalnej (tę
+drugą zapisuje 86Box), oraz surowe obrazy `.img`. O rodzaju pliku decyduje
+jego zawartość, nie nazwa.
+
+Na dysku znajduje tablicę partycji, razem z partycjami logicznymi wewnątrz
+rozszerzonej — na maszynach z epoki `C:` bywa podstawowy, a `D:` i `E:`
+leżą właśnie tam. Przy kilku czytelnych partycjach program pyta, którą
+pokazać; przełączysz ją później przez **Dyskietka → Wybierz partycję**.
+Partycje, których nie umie czytać, wypisuje obok, żeby nie wyglądało, że
+dysk jest mniejszy, niż jest.
+
+Czyta partycje FAT16 i FAT12, leniwie: żeby pokazać katalog, sięga po blok
+parametrów, tablicę FAT i obszar katalogu, a nie po cały dysk. O rodzaju
+FAT decyduje liczba klastrów, tak samo jak liczył DOS — napis w sektorze
+rozruchowym bywa mylący.
+
+**Obrazy dysków są tylko do odczytu.** Przyciski zmieniające zawartość są
+wtedy wyłączone. Nadpisanie obrazu w trakcie pracy maszyny wirtualnej
+niszczy cały system plików, a nie jedną dyskietkę, więc zapis dostanie
+własne zabezpieczenia i własny etap prac.
+
+Z wiersza poleceń:
+
+```bash
+python3 vhd.py info dysk.vhd
+python3 partitions.py dysk.vhd
+```
 
 ## Kopiowanie katalogów
 

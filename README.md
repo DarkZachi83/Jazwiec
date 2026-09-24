@@ -21,6 +21,10 @@ behaves identically on Linux and Windows — and needs no `sudo`.
 | `dialogs_drive.py` | drive windows: list, formatting, report (with `usbfloppy.py`) |
 | `dialogs_diskset.py` | disk-set wizard (with `diskset.py`) |
 | `gwbridge.py` | Greaseweazle bridge: runs `gw` and parses its output |
+| `vhd.py` | reading VHD disk images |
+| `partitions.py` | partition table of disk images |
+| `fat16.py` | FAT16/FAT12 engine for hard disks |
+| `dialogs_disk.py` | partition chooser window |
 | `dialogs_gw.py` | Greaseweazle window (with `gwbridge.py`) |
 | `fat12.py` | FAT12 engine — formatting and file operations |
 | `languages.py` | interface strings (Polish, English) |
@@ -826,6 +830,37 @@ The program will not create one and does not try — that would require system
 files it may not redistribute. Instead it takes a ready bootable image as the
 basis for the first floppy and adds the installer in the free space. Prepare
 such a floppy with `FORMAT A: /S` in the emulator and save it as an image.
+
+## Hard disk images
+
+A disk image opens the same way as a floppy — **Disk → Open image**. The
+program reads VHD files, both fixed and dynamic (86Box writes the latter),
+as well as raw `.img` images. The kind of file is decided by its contents,
+not by its name.
+
+On the disk it finds the partition table, including logical partitions
+inside an extended one — on period machines `C:` is often primary while
+`D:` and `E:` live there. With several readable partitions the program asks
+which one to show; you can switch later through **Disk → Choose partition**.
+Partitions it cannot read are listed alongside, so the disk does not look
+smaller than it is.
+
+It reads FAT16 and FAT12 partitions lazily: to show a directory it fetches
+the parameter block, the FAT and the directory area, not the whole disk.
+Which FAT it is follows from the cluster count, exactly as DOS worked it out
+— the string in the boot sector can be misleading.
+
+**Disk images are read-only.** Buttons that change contents are disabled.
+Overwriting an image while the virtual machine is running destroys a whole
+filesystem rather than one floppy, so writing will get its own safeguards
+and its own stage of work.
+
+From the command line:
+
+```bash
+python3 vhd.py info disk.vhd
+python3 partitions.py disk.vhd
+```
 
 ## Copying directories
 

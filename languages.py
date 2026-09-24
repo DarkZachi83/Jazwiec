@@ -72,6 +72,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "menu_add": "Dodaj pliki...",
         "menu_add_folder": "Dodaj katalog z podkatalogami...",
         "menu_gw": "Greaseweazle...",
+        "part_title": "Partycje dysku",
+        "part_intro": "Obraz zawiera kilka partycji. Ktora pokazac?",
+        "part_open": "Otworz",
+        "part_others": "Pozostale partycje (program ich nie czyta):",
+        "menu_partition": "Wybierz partycje...",
+        "status_partition": "Partycja {index}: {label}",
+        "readonly_hint": "Obraz dysku twardego - tylko do odczytu.",
         "gw_title": "Greaseweazle",
         "gw_legend_pending": "oczekuje",
         "gw_legend_active": "w pracy",
@@ -473,6 +480,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "browse_damaged": "Podglad dyskietki: {count} sektorow nie dalo sie "
                           "odczytac. Lista plikow moze byc niepelna.",
         "browse_readonly": " (podglad dyskietki - tylko odczyt) ",
+        "browse_readonly_disk": " (dysk twardy - tylko odczyt) ",
         "browse_hint": "Podglad czyta tylko obszar systemowy; przy "
                        "wypakowywaniu dochodza klastry wybranego pliku.",
         "format_title": "Formatowanie dyskietki",
@@ -619,6 +627,13 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "menu_add": "Add files...",
         "menu_add_folder": "Add folder with subfolders...",
         "menu_gw": "Greaseweazle...",
+        "part_title": "Disk partitions",
+        "part_intro": "The image contains several partitions. Which one?",
+        "part_open": "Open",
+        "part_others": "Other partitions (not readable by the program):",
+        "menu_partition": "Choose partition...",
+        "status_partition": "Partition {index}: {label}",
+        "readonly_hint": "Hard disk image - read-only.",
         "gw_title": "Greaseweazle",
         "gw_legend_pending": "waiting",
         "gw_legend_active": "in progress",
@@ -1014,6 +1029,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "browse_damaged": "Browsing the floppy: {count} sectors could not be "
                           "read. The file list may be incomplete.",
         "browse_readonly": " (floppy preview - read only) ",
+        "browse_readonly_disk": " (hard disk - read only) ",
         "browse_hint": "The preview reads only the system area; extracting "
                        "adds the clusters of the chosen file.",
         "format_title": "Formatting a floppy",

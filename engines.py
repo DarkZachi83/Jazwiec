@@ -124,8 +124,22 @@ def _fat12() -> Engine:
     )
 
 
-# Kolejnosc ma znaczenie tylko przy remisie w rozpoznawaniu.
-_FACTORIES: list[Callable[[], Engine]] = [_fat12]
+def _harddisk() -> Engine:
+    import fat16
+
+    return Engine(
+        key="harddisk",
+        label="Dysk twardy FAT16/FAT12 (VHD, obraz surowy)",
+        extensions=(".vhd", ".img", ".hdd", ".ima"),
+        detect=fat16.looks_like_disk,
+        open=fat16.HardDiskImage,
+    )
+
+
+# Kolejnosc ma znaczenie przy remisie w rozpoznawaniu. Dyskietka idzie
+# pierwsza, bo jej sektor rozruchowy ma sensowny blok BPB, a tablica
+# partycji dysku nie - dzieki temu obrazy nie mylą sie ze soba.
+_FACTORIES: list[Callable[[], Engine]] = [_fat12, _harddisk]
 
 _cache: list[Engine] | None = None
 
