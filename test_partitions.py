@@ -224,5 +224,44 @@ class OtwieranieObrazow(PrzypadekZKatalogiem):
         self.assertIn("nie ma takiego pliku", bledy.getvalue())
 
 
+
+class ZapisDoSurowegoObrazu(PrzypadekZKatalogiem):
+
+    def obraz(self, sektorow: int = 16) -> str:
+        sciezka = self.sciezka("surowy.img")
+        with open(sciezka, "wb") as fh:
+            fh.write(bytes(sektorow * SEKTOR))
+        return sciezka
+
+    def test_domyslnie_tylko_do_odczytu(self):
+        with partitions.open_disk(self.obraz()) as dysk:
+            with self.assertRaises(partitions.DiskError):
+                dysk.write_sector(0, b"x" * SEKTOR)
+
+    def test_zapis_i_odczyt(self):
+        sciezka = self.obraz()
+        with partitions.open_disk(sciezka, read_only=False) as dysk:
+            dysk.write_sector(5, b"A" * SEKTOR)
+            dysk.write(8, b"B" * SEKTOR + b"C" * SEKTOR)
+        with partitions.open_disk(sciezka) as dysk:
+            self.assertEqual(dysk.read_sector(5), b"A" * SEKTOR)
+            self.assertEqual(dysk.read_sector(9), b"C" * SEKTOR)
+            self.assertEqual(dysk.read_sector(4), bytes(SEKTOR))
+
+    def test_poza_dyskiem_odrzucone(self):
+        with partitions.open_disk(self.obraz(), read_only=False) as dysk:
+            with self.assertRaises(partitions.DiskError):
+                dysk.write_sector(16, b"x" * SEKTOR)
+
+    def test_rozmiar_pliku_bez_zmian(self):
+        """Zapis w istniejacy obszar nie moze rozdymac obrazu."""
+        import os
+        sciezka = self.obraz()
+        przed = os.path.getsize(sciezka)
+        with partitions.open_disk(sciezka, read_only=False) as dysk:
+            dysk.write_sector(15, b"Z" * SEKTOR)
+        self.assertEqual(os.path.getsize(sciezka), przed)
+
+
 if __name__ == "__main__":
     unittest.main()

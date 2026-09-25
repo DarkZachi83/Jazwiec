@@ -15,6 +15,8 @@ Uruchomienie:  python3 main.py
 
 from __future__ import annotations
 
+import os
+
 import json
 import sys
 import tkinter as tk
@@ -63,7 +65,7 @@ from ui_panels import PanelsMixin
 from styles import (
     APP_NAME, APP_VERSION, SCREEN, ACCENT, ALERT, GOOD, _pick_font,
 )
-from dialogs_files import FolderDialog, TextEditor
+from dialogs_files import FolderDialog, PostepKopiowania, TextEditor
 from system import (
     CONFIG_FILE, hand_back, wzorce_plikow,
     _stamp, _human,
@@ -343,6 +345,40 @@ class RetroZachar(StyleMixin, PanelsMixin, tk.Tk):
         self.status(self.t("status_partition", index=wybor,
                            label=nowy.get_label() or nowy.format_name), "ok")
 
+    def unlock_disk(self) -> None:
+        """
+        Otwiera obraz dysku do zapisu, po wyraznym potwierdzeniu.
+
+        Obrazy dyskow otwieraja sie tylko do odczytu i tak ma zostac przy
+        zwyklym otwarciu pliku. Zapis do obrazu, ktorego uzywa wlasnie
+        maszyna wirtualna, niszczy caly system plikow - decyzja musi byc
+        swiadoma, a nie skutkiem klikniecia nie tam.
+        """
+        if not self.image or not self._obraz_dysku():
+            self.status(self.t("unlock_nothing"), "error")
+            return
+        if not self.image_readonly:
+            self.status(self.t("unlock_locked"), "ok")
+            return
+        if not messagebox.askyesno(
+                APP_NAME, self.t("unlock_warn", path=self.image_path),
+                icon="warning", default="no", parent=self):
+            return
+        partycja = getattr(self.image, "partition_index", None)
+        try:
+            nowy = fat16.HardDiskImage(self.image_path, read_only=False,
+                                       partition=partycja)
+        except (ImageError, OSError) as exc:
+            self.status(self.t("unlock_failed", reason=exc), "error")
+            return
+        self.image.close()
+        self.image = nowy
+        self.image_readonly = False
+        self.image_stamp = _stamp(self.image_path)
+        self._refresh_controls()
+        self.refresh_listing()
+        self.status(self.t("unlock_done", path=self.image_path.name), "ok")
+
     def close_image(self) -> None:
         if self.image:
             self.image.close()
@@ -561,14 +597,25 @@ class RetroZachar(StyleMixin, PanelsMixin, tk.Tk):
             return
         source = options["source"]
 
+        # Liczba pozycji jest juz policzona w oknie podsumowania, wiec
+        # pasek moze pokazac prawdziwy postep, a nie samo tykanie.
+        ile = options.get("files", 0) + options.get("dirs", 0) or None
+        postep = PostepKopiowania(self, ile)
         try:
             info = self.image.import_tree(
-                source, self.cwd, include_root=options["with_root"])
+                source, self.cwd, include_root=options["with_root"],
+                on_item=lambda sciezka: postep.krok(os.path.basename(sciezka)))
         except (ImageError, OSError) as exc:
+            postep.zamknij()
             self._error(exc)
             return
+        postep.zamknij()
 
         self._saved()
+        if postep.przerwane:
+            self.status(self.t("busy_cancelled",
+                               count=info["files"] + info["dirs"]), "error")
+            return
         if info["renamed"]:
             messagebox.showinfo(
                 APP_NAME,
@@ -592,7 +639,15 @@ class RetroZachar(StyleMixin, PanelsMixin, tk.Tk):
         if not self._guard_write():
             return
         copied, renamed, failed = 0, [], []
+        # Przy kilku plikach okno postepu tylko by mignelo; przy kilkuset
+        # bez niego program wyglada na zawieszony.
+        postep = (PostepKopiowania(self, len(paths))
+                  if len(paths) > 8 else None)
+        przerwane = False
         for path in paths:
+            if postep is not None and not postep.krok(path.name):
+                przerwane = True
+                break
             try:
                 final = self.image.import_file(path, self.cwd)
                 copied += 1
@@ -600,8 +655,13 @@ class RetroZachar(StyleMixin, PanelsMixin, tk.Tk):
                     renamed.append(f"{path.name} -> {final}")
             except (ImageError, OSError) as exc:
                 failed.append(f"{path.name}: {exc}")
+        if postep is not None:
+            postep.zamknij()
 
         self._saved()
+        if przerwane:
+            self.status(self.t("busy_cancelled", count=copied), "error")
+            return
         if failed:
             messagebox.showwarning(
                 APP_NAME,

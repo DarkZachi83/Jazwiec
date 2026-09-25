@@ -10,7 +10,9 @@ Prawdziwy obraz z 86Boxa sluzyl do sprawdzenia modulu podczas pisania.
 """
 
 import datetime
+import os
 import struct
+import subprocess
 import unittest
 
 from helpers import PrzypadekZKatalogiem
@@ -46,8 +48,11 @@ class BudowniczyFat:
                                 + self.sektorow_glownych)
         self.sektorow = self.pierwszy_danych + klastrow * self.spc
         self._fat = [0] * (klastrow + 2)
-        self._fat[0] = 0xFF8
-        self._fat[1] = 0xFFF
+        # Dwa pierwsze wpisy to znacznik nosnika i znacznik konca - w FAT16
+        # pelne szesnascie bitow. Wpisanie tu wartosci dwunastobitowych
+        # daje obraz, ktory fsck.fat uznaje za uszkodzony.
+        self._fat[0] = 0xFFF8 if self.bits == 16 else 0xFF8
+        self._fat[1] = 0xFFFF if self.bits == 16 else 0xFFF
         self._dane: dict[int, bytes] = {}
         self._glowny: list[bytes] = []
         self._wolny = 2
@@ -71,6 +76,11 @@ class BudowniczyFat:
     def _wpis(self, nazwa: str, atrybuty: int, klaster: int,
               rozmiar: int) -> bytes:
         wpis = bytearray(32)
+        if atrybuty == 0x08:
+            wpis = bytearray(32)
+            wpis[0:11] = nazwa.upper().ljust(11)[:11].encode("latin1")
+            wpis[0x0B] = atrybuty
+            return bytes(wpis)
         if nazwa in (".", ".."):
             # Wpisy kropkowe leza w polu nazwy jako takie, bez kropki
             # oddzielajacej rozszerzenie.
@@ -163,6 +173,14 @@ class BudowniczyFat:
         return bytes(dane)
 
     def zbuduj(self) -> bytes:
+        # Etykieta zyje w dwoch miejscach: w sektorze rozruchowym i jako
+        # wpis w katalogu glownym. DOS zapisuje oba, a fsck.fat zglasza
+        # brak drugiego - obraz testowy musi byc pod tym wzgledem taki sam
+        # jak prawdziwy, inaczej nie da sie odroznic naszych bledow od
+        # jego wlasnych.
+        if self.etykieta and not any(
+                w[0x0B] == 0x08 for w in self._glowny):
+            self._glowny.insert(0, self._wpis(self.etykieta, 0x08, 0, 0))
         obraz = bytearray(self.sektorow * SEKTOR)
         obraz[0:SEKTOR] = self._bpb()
         fat = self._tablica_fat()
@@ -461,7 +479,10 @@ class BledneObrazy(PrzypadekZKatalogiem):
 
 
 class WarstwaSilnikow(PrzypadekZKatalogiem):
-    """Obraz dysku ma sie otwierac ta sama droga co dyskietka."""
+    """
+    Obraz dysku ma sie otwierac ta sama droga co dyskietka - ale zawsze
+    tylko do odczytu. Zapis wymaga siegniecia po silnik wprost.
+    """
 
     def test_dysk_rozpoznany_przez_warstwe(self):
         import engines
@@ -477,7 +498,8 @@ class WarstwaSilnikow(PrzypadekZKatalogiem):
         self.assertEqual(silnik.key, "harddisk")
         obraz = engines.open_image(sciezka)
         self.addCleanup(obraz.close)
-        self.assertTrue(obraz.read_only)
+        self.assertTrue(obraz.read_only,
+                        "z menu obraz dysku otwiera sie tylko do odczytu")
         self.assertEqual(obraz.read_file("/A.TXT"), b"tresc")
 
     def test_dyskietka_nadal_trafia_do_fat12(self):
@@ -534,6 +556,164 @@ class LenistwoOdczytu(PrzypadekZKatalogiem):
         liczacy.close()
         self.assertLess(liczacy.odczytow - przed, b.sektorow // 10,
                         "katalog glowny to ulamek dysku")
+
+
+
+def _fsck_dostepny() -> bool:
+    import shutil
+    return shutil.which("fsck.fat") is not None
+
+
+@unittest.skipUnless(_fsck_dostepny(), "brak fsck.fat (pakiet dosfstools)")
+class ZapisOcenionyPrzezFsck(PrzypadekZKatalogiem):
+    """
+    Niezalezne potwierdzenie poprawnosci zapisu.
+
+    Wlasny silnik nie moze byc sedzia we wlasnej sprawie: czyta tak, jak
+    zapisal, wiec zgodny blad po obu stronach zostalby niezauwazony. Tak
+    wlasnie wyszlo z dwoma pierwszymi wpisami tablicy FAT.
+    """
+
+    def sprawdz(self, sciezka: str) -> subprocess.CompletedProcess:
+        return subprocess.run(["fsck.fat", "-n", "-v", sciezka],
+                              capture_output=True, text=True)
+
+    def obraz(self, klastrow: int = 4200) -> str:
+        sciezka = self.sciezka("partycja.img")
+        b = BudowniczyFat(klastrow=klastrow,
+                          etykieta="DOS").plik("CONFIG.SYS", b"FILES=30")
+        with open(sciezka, "wb") as fh:
+            fh.write(b.zbuduj())
+        return sciezka
+
+    def test_obraz_testowy_jest_poprawny(self):
+        """Punkt wyjscia musi byc czysty, inaczej nic nie udowodnimy."""
+        wynik = self.sprawdz(self.obraz())
+        self.assertEqual(wynik.returncode, 0, wynik.stdout[-400:])
+
+    def test_po_zapisie_nadal_poprawny(self):
+        sciezka = self.obraz()
+        with fat16.HardDiskImage(sciezka, read_only=False) as obraz:
+            obraz.write_file("/AUTOEXEC.BAT", b"@ECHO OFF\r\n")
+            obraz.mkdir("/GRY")
+            obraz.mkdir("/GRY/POOL")
+            obraz.write_file("/GRY/POOL/POOL.EXE", bytes(range(256)) * 300)
+            obraz.write_file("/TYMCZASOWY.TXT", b"x" * 9000)
+            obraz.remove("/TYMCZASOWY.TXT")
+            obraz.rename("/CONFIG.SYS", "CONFIG.OLD")
+            obraz.set_label("TESTOWY")
+        wynik = self.sprawdz(sciezka)
+        self.assertEqual(wynik.returncode, 0, wynik.stdout[-600:])
+        with fat16.HardDiskImage(sciezka) as obraz:
+            self.assertEqual(obraz.get_label(), "TESTOWY")
+
+    def test_fat12_po_zapisie(self):
+        sciezka = self.obraz(klastrow=1000)
+        with fat16.HardDiskImage(sciezka, read_only=False) as obraz:
+            obraz.write_file("/DUZY.BIN", bytes(range(256)) * 200)
+            obraz.mkdir("/PODKATALOG")
+            obraz.write_file("/PODKATALOG/A.TXT", b"tresc")
+        wynik = self.sprawdz(sciezka)
+        self.assertEqual(wynik.returncode, 0, wynik.stdout[-600:])
+
+    def test_kasowanie_zwalnia_klastry(self):
+        sciezka = self.obraz()
+        with fat16.HardDiskImage(sciezka, read_only=False) as obraz:
+            przed = obraz.free_bytes
+            obraz.write_file("/DUZY.BIN", b"x" * 100000)
+            self.assertLess(obraz.free_bytes, przed)
+            obraz.remove("/DUZY.BIN")
+            self.assertEqual(obraz.free_bytes, przed)
+        wynik = self.sprawdz(sciezka)
+        self.assertEqual(wynik.returncode, 0, wynik.stdout[-400:])
+
+
+
+class KopiowanieDrzewa(PrzypadekZKatalogiem):
+    """
+    Kopiowanie katalogu na dysk. Kontrakt musi byc ten sam co przy
+    dyskietce - okno wola obie drogi tak samo i nie odroznia ich.
+    """
+
+    def dysk(self) -> str:
+        sciezka = self.sciezka("dysk.img")
+        b = BudowniczyFat(klastrow=6000,
+                          etykieta="DOS").plik("CONFIG.SYS", b"x")
+        mbr = bytearray(SEKTOR)
+        mbr[446:462] = wpis_partycji(0x06, 63, b.sektorow)
+        mbr[510:512] = b"\x55\xaa"
+        with open(sciezka, "wb") as fh:
+            fh.write(bytes(mbr) + bytes(62 * SEKTOR) + b.zbuduj())
+        return sciezka
+
+    def drzewo(self) -> str:
+        korzen = self.sciezka("Sid Meiers Civilization")
+        os.makedirs(os.path.join(korzen, "SAVE"))
+        for numer in range(4):
+            with open(os.path.join(korzen, f"CIV{numer}.DAT"), "wb") as fh:
+                fh.write(bytes(3000))
+        with open(os.path.join(korzen, "SAVE", "GRA1.SVE"), "wb") as fh:
+            fh.write(b"zapis")
+        return korzen
+
+    def test_ten_sam_kontrakt_co_przy_dyskietce(self):
+        import inspect
+        import fat12
+        dysk = inspect.signature(fat16.HardDiskImage.import_tree)
+        dyskietka = inspect.signature(fat12.Fat12Image.import_tree)
+        self.assertEqual(list(dysk.parameters), list(dyskietka.parameters))
+
+    def test_struktura_i_zawartosc(self):
+        with fat16.HardDiskImage(self.dysk(), read_only=False) as obraz:
+            raport = obraz.import_tree(self.drzewo(), "/")
+            self.assertEqual(raport["files"], 5)
+            self.assertEqual(raport["dirs"], 2)
+            self.assertEqual([w.name for w in obraz.listdir("/SIDMEIER")],
+                             ["CIV0.DAT", "CIV1.DAT", "CIV2.DAT", "CIV3.DAT",
+                              "SAVE"])
+            self.assertEqual(obraz.read_file("/SIDMEIER/SAVE/GRA1.SVE"),
+                             b"zapis")
+
+    def test_raport_podaje_nazwe_z_dysku(self):
+        """
+        Wczesniej raport pokazywal "SID MEIERS C" - nazwe ze spacjami,
+        ktora nigdzie nie istniala, bo wpis i tak przechodzi przez 8.3.
+        """
+        with fat16.HardDiskImage(self.dysk(), read_only=False) as obraz:
+            raport = obraz.import_tree(self.drzewo(), "/")
+        self.assertIn("Sid Meiers Civilization -> SIDMEIER",
+                      raport["renamed"])
+
+    def test_bez_katalogu_nadrzednego(self):
+        with fat16.HardDiskImage(self.dysk(), read_only=False) as obraz:
+            obraz.import_tree(self.drzewo(), "/", include_root=False)
+            nazwy = [w.name for w in obraz.listdir("/")]
+        self.assertIn("CIV0.DAT", nazwy)
+        self.assertNotIn("SIDMEIER", nazwy)
+
+    def test_przerwanie_zatrzymuje_kopiowanie(self):
+        """on_item zwracajace False ma zatrzymac prace, a nie tylko zglaszac."""
+        widziane = []
+
+        def obserwator(sciezka):
+            widziane.append(sciezka)
+            return len(widziane) < 3
+
+        with fat16.HardDiskImage(self.dysk(), read_only=False) as obraz:
+            raport = obraz.import_tree(self.drzewo(), "/",
+                                       on_item=obserwator)
+        self.assertEqual(len(widziane), 3)
+        self.assertLess(raport["files"], 5)
+
+    def test_skracanie_nazw(self):
+        for nazwa, oczekiwana in (
+                ("Sid Meiers Civilization", "SIDMEIER"),
+                ("Leisure Suit Larry.exe", "LEISURES.EXE"),
+                ("a.b.c.txt", "ABC.TXT"),
+                ("config.sys", "CONFIG.SYS")):
+            with self.subTest(nazwa=nazwa):
+                self.assertEqual(fat16.HardDiskImage.short_name(nazwa),
+                                 oczekiwana)
 
 
 if __name__ == "__main__":

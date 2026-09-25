@@ -839,10 +839,18 @@ parametrów, tablicę FAT i obszar katalogu, a nie po cały dysk. O rodzaju
 FAT decyduje liczba klastrów, tak samo jak liczył DOS — napis w sektorze
 rozruchowym bywa mylący.
 
-**Obrazy dysków są tylko do odczytu.** Przyciski zmieniające zawartość są
-wtedy wyłączone. Nadpisanie obrazu w trakcie pracy maszyny wirtualnej
-niszczy cały system plików, a nie jedną dyskietkę, więc zapis dostanie
-własne zabezpieczenia i własny etap prac.
+Obraz otwiera się tylko do odczytu. Zapis włącza się świadomie:
+**Dyskietka → Odblokuj zapis do obrazu**. Program ostrzega wtedy przed
+zapisem do obrazu, którego używa uruchomiona maszyna, i radzi zrobić kopię —
+nadpisanie takiego obrazu niszczy cały system plików, a nie jeden plik.
+Dopiero po potwierdzeniu przyciski zmieniające zawartość zaczynają działać.
+
+Zapis do obrazu niepełnego, którego tablica bloków wskazuje poza koniec
+pliku, jest odrzucany: dopisywanie do takiego pliku zamieniłoby obraz
+niepełny w całkiem zepsuty. Odczyt nadal działa.
+
+Poprawność zapisu potwierdza `fsck.fat` — bez zastrzeżeń dla FAT16 i FAT12,
+po utworzeniu plików i katalogów, skasowaniu, zmianie nazwy i etykiety.
 
 Z wiersza poleceń:
 

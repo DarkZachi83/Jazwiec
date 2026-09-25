@@ -65,6 +65,8 @@ class PanelsMixin:
         if DISKS_AVAILABLE:
             disk.add_command(label=self.t("menu_partition"),
                              command=self.choose_partition)
+            disk.add_command(label=self.t("menu_unlock"),
+                             command=self.unlock_disk)
         disk.add_command(label=self.t("menu_close"), command=self.close_image)
         disk.add_separator()
         if PACZKA_AVAILABLE:

@@ -1,0 +1,36 @@
+name: testy
+
+# Zestaw testow uruchamiany przy kazdej zmianie. Program nie ma zaleznosci
+# poza biblioteka standardowa, wiec doinstalowujemy tylko to, czego wymagaja
+# same testy: fsck.fat jako niezalezne potwierdzenie poprawnosci obrazow
+# i serwer graficzny dla testow okna. Bez nich testy nie zawodza, tylko sa
+# pomijane - ale wtedy sprawdzamy mniej, niz moglibysmy.
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  testy:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12", "3.13"]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Doinstaluj narzedzia testow
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y dosfstools xvfb python3-tk
+
+      - name: Uruchom testy
+        run: xvfb-run -a python tests/run.py

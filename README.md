@@ -850,10 +850,19 @@ the parameter block, the FAT and the directory area, not the whole disk.
 Which FAT it is follows from the cluster count, exactly as DOS worked it out
 — the string in the boot sector can be misleading.
 
-**Disk images are read-only.** Buttons that change contents are disabled.
-Overwriting an image while the virtual machine is running destroys a whole
-filesystem rather than one floppy, so writing will get its own safeguards
-and its own stage of work.
+An image opens read-only. Writing is enabled deliberately:
+**Disk → Unlock writing to image**. The program then warns against writing to
+an image a running machine has open and suggests making a copy — overwriting
+such an image destroys a whole filesystem, not a single file. Only after
+confirmation do the buttons that change contents start working.
+
+Writing to an incomplete image, whose block table points past the end of the
+file, is refused: appending to such a file would turn a partial image into a
+ruined one. Reading still works.
+
+The correctness of writing is confirmed by `fsck.fat` — no objections for
+FAT16 or FAT12, after creating files and directories, deleting, renaming and
+changing the label.
 
 From the command line:
 

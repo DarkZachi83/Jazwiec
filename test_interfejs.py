@@ -1205,6 +1205,22 @@ class ObrazDyskuWOknie(PrzypadekZKatalogiem):
         # Okno bledu jest rownie modalne jak okno wyboru. Zamiast zawieszac
         # zestaw, blad ma przerwac test z czytelna trescia.
         self.app._error = self._blad
+        self._przejmij_komunikaty()
+
+    def _przejmij_komunikaty(self):
+        """
+        Kazde okno komunikatu dostaje z gory odpowiedz.
+
+        Nie tylko wygoda: nieudany zapis pokazuje okno bledu, a test bez
+        podstawionej odpowiedzi nie padnie, tylko zawiesi caly zestaw.
+        Zawieszony test niczego nie dowodzi.
+        """
+        import tkinter.messagebox as mb
+        for nazwa, odpowiedz in (("showerror", None), ("showwarning", None),
+                                 ("showinfo", None), ("askyesno", False),
+                                 ("askyesnocancel", False)):
+            self.addCleanup(setattr, mb, nazwa, getattr(mb, nazwa))
+            setattr(mb, nazwa, lambda *a, _w=odpowiedz, **k: _w)
 
     def _blad(self, wyjatek):
         raise AssertionError(f"okno pokazalo blad: {wyjatek}")
@@ -1261,6 +1277,155 @@ class ObrazDyskuWOknie(PrzypadekZKatalogiem):
         self.app.update()
         self.assertTrue(self.app.var_location.get().startswith("C:"))
         self.assertIn("Plik:", self.app.var_filepath.get())
+
+    def test_odblokowanie_zapisu(self):
+        """
+        Obraz dysku otwiera sie tylko do odczytu; zapis wymaga wyraznej
+        zgody. Pomylka kosztuje tu caly system plikow maszyny, wiec nie
+        moze byc skutkiem klikniecia nie tam.
+        """
+        from pathlib import Path
+        import tkinter.messagebox as mb
+        sciezka = self.dysk()
+        pytania = []
+        stare = mb.askyesno
+        mb.askyesno = lambda *a, **k: pytania.append(a) or False
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare))
+
+        self.app._open_path(Path(sciezka))
+        self.app.update()
+        self.assertTrue(self.app.image_readonly)
+
+        self.app.unlock_disk()
+        self.app.update()
+        self.assertEqual(len(pytania), 1, "program ma ostrzec przed zapisem")
+        self.assertIn("maszyne", pytania[0][1], "ostrzezenie o maszynie")
+        self.assertTrue(self.app.image_readonly, "odmowa nic nie zmienia")
+
+        mb.askyesno = lambda *a, **k: True
+        self.app.unlock_disk()
+        self.app.update()
+        self.assertFalse(self.app.image_readonly)
+        czynne = [w for w in getattr(self.app, "_writable_list", [])
+                  if str(w.cget("state")) == "normal"]
+        self.assertTrue(czynne, "po odblokowaniu przyciski maja dzialac")
+
+    def test_zapis_przez_okno(self):
+        """Wniesienie pliku przyciskiem konczy sie zapisem w obrazie."""
+        from pathlib import Path
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        sciezka = self.dysk()
+        stare = mb.askyesno, fd.askopenfilenames, mb.showinfo
+        mb.askyesno = lambda *a, **k: True
+        mb.showinfo = lambda *a, **k: None
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare[0]))
+        self.addCleanup(lambda: setattr(fd, "askopenfilenames", stare[1]))
+        self.addCleanup(lambda: setattr(mb, "showinfo", stare[2]))
+
+        zrodlo = self.sciezka("NOTATKA.TXT")
+        with open(zrodlo, "wb") as fh:
+            fh.write(b"zapisane z Jazwca")
+        fd.askopenfilenames = lambda **k: (zrodlo,)
+
+        self.app._open_path(Path(sciezka))
+        self.app.unlock_disk()
+        self.app.update()
+        self.app.add_files()
+        self.app.update()
+        self.assertIn("NOTATKA.TXT",
+                      [w.name for w in self.app.image.listdir("/")])
+        self.assertEqual(self.app.image.read_file("/NOTATKA.TXT"),
+                         b"zapisane z Jazwca")
+
+    def test_okno_postepu_przy_wielu_plikach(self):
+        """
+        Zgloszenie z uzytkowania: przy kopiowaniu wielu plikow program nie
+        pokazywal niczego i wygladal na zawieszony.
+        """
+        from pathlib import Path
+        import tkinter.filedialog as fd
+        import dialogs_files
+        widziane = []
+        stare = dialogs_files.PostepKopiowania.krok
+
+        def krok(jaki, opis=""):
+            widziane.append((jaki.zrobione, jaki.ile))
+            return stare(jaki, opis)
+
+        dialogs_files.PostepKopiowania.krok = krok
+        self.addCleanup(setattr, dialogs_files.PostepKopiowania, "krok",
+                        stare)
+
+        pliki = []
+        for numer in range(12):
+            plik = self.sciezka(f"PLIK{numer:02d}.DAT")
+            with open(plik, "wb") as fh:
+                fh.write(bytes(1000))
+            pliki.append(plik)
+        stary_wybor = fd.askopenfilenames
+        fd.askopenfilenames = lambda **k: tuple(pliki)
+        self.addCleanup(setattr, fd, "askopenfilenames", stary_wybor)
+
+        # Osłona zestawu odpowiada odmownie na kazde pytanie, a tu
+        # odblokowanie zapisu musi dojsc do skutku.
+        import tkinter.messagebox as mb
+        self.addCleanup(setattr, mb, "askyesno", mb.askyesno)
+        mb.askyesno = lambda *a, **k: True
+        self.app._open_path(Path(self.dysk()))
+        self.app.unlock_disk()
+        self.app.update()
+        self.app.add_files()
+        self.app.update()
+        self.assertEqual(len(widziane), 12, "kazdy plik zglasza postep")
+        self.assertEqual(widziane[0][1], 12, "pasek zna liczbe pozycji")
+        self.assertEqual(
+            len([w for w in self.app.image.listdir("/")
+                 if w.name.startswith("PLIK")]), 12)
+
+    def test_kilka_plikow_bez_okna_postepu(self):
+        """Przy kilku plikach okno tylko by mignelo."""
+        from pathlib import Path
+        import tkinter.filedialog as fd
+        import dialogs_files
+        powstalo = []
+        stare = dialogs_files.PostepKopiowania.__init__
+
+        def init(jaki, master, ile=None):
+            powstalo.append(ile)
+            stare(jaki, master, ile)
+
+        dialogs_files.PostepKopiowania.__init__ = init
+        self.addCleanup(setattr, dialogs_files.PostepKopiowania, "__init__",
+                        stare)
+        plik = self.sciezka("JEDEN.TXT")
+        with open(plik, "wb") as fh:
+            fh.write(b"x")
+        stary_wybor = fd.askopenfilenames
+        fd.askopenfilenames = lambda **k: (plik,)
+        self.addCleanup(setattr, fd, "askopenfilenames", stary_wybor)
+
+        # Osłona zestawu odpowiada odmownie na kazde pytanie, a tu
+        # odblokowanie zapisu musi dojsc do skutku.
+        import tkinter.messagebox as mb
+        self.addCleanup(setattr, mb, "askyesno", mb.askyesno)
+        mb.askyesno = lambda *a, **k: True
+        self.app._open_path(Path(self.dysk()))
+        self.app.unlock_disk()
+        self.app.update()
+        self.app.add_files()
+        self.app.update()
+        self.assertEqual(powstalo, [], "jeden plik nie potrzebuje okna")
+        self.assertIn("JEDEN.TXT",
+                      [w.name for w in self.app.image.listdir("/")])
+
+    def test_zapis_bez_odblokowania_niemozliwy(self):
+        from pathlib import Path
+        import fat16
+        self.app._open_path(Path(self.dysk()))
+        self.app.update()
+        with self.assertRaises(fat16.Fat16Error):
+            self.app.image.write_file("/X.TXT", b"x")
 
     def test_wybor_partycji(self):
         from pathlib import Path

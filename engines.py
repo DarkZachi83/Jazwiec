@@ -132,7 +132,7 @@ def _harddisk() -> Engine:
         label="Dysk twardy FAT16/FAT12 (VHD, obraz surowy)",
         extensions=(".vhd", ".img", ".hdd", ".ima"),
         detect=fat16.looks_like_disk,
-        open=fat16.HardDiskImage,
+        open=fat16.open_read_only,
     )
 
 

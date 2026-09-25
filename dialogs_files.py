@@ -19,7 +19,7 @@ import dostext
 from fat12 import Fat12Error
 from styles import (
     APP_NAME, SCREEN, PANEL, FRAME, TEXT, BRIGHT, ACCENT, HINT, ALERT,
-    GOOD, FIELD, Panel,
+    GOOD, FIELD, Panel, ProgressBar,
 )
 from system import _human, _measure_folder
 
@@ -202,9 +202,100 @@ class FolderDialog(tk.Toplevel):
             )
 
     def accept(self) -> None:
+        # Liczby z pomiaru ida dalej: pasek postepu przy kopiowaniu moze
+        # dzieki nim pokazac prawdziwy postep, a nie samo tykanie licznika.
         self.result = {"with_root": self.var_root.get() == "with",
-                       "source": self.source}
+                       "source": self.source,
+                       "files": self.files, "dirs": self.dirs}
         self.destroy()
+
+
+class PostepKopiowania(tk.Toplevel):
+    """
+    Okno postepu dlugiego kopiowania, z mozliwoscia przerwania.
+
+    Bez niego program przy trzech tysiacach plikow po prostu przestaje
+    odpowiadac i wyglada na zawieszony - zgloszenie z uzytkowania.
+
+    Nie ma tu watku w tle: kopiowanie idzie dalej w watku okna, a my co
+    kilka pozycji oddajemy sterowanie Tkinterowi, zeby zdazyl sie
+    przerysowac i przyjac klikniecie. Watek w tle wymagalby przenoszenia
+    calego zapisu poza okno, a zapis do obrazu lepiej trzymac w jednym
+    miejscu.
+    """
+
+    CO_ILE = 5          # co tyle pozycji odswiezamy okno
+
+    def __init__(self, master, ile: int | None = None):
+        super().__init__(master, bg=SCREEN)
+        self.app = master
+        app = master
+        self.przerwane = False
+        self.zrobione = 0
+        self.ile = ile
+
+        self.title(app.t("busy_title"))
+        self.configure(padx=12, pady=12)
+        self.transient(master)
+        self.resizable(False, False)
+
+        panel = Panel(self, app.t("busy_title"), app.f_title)
+        panel.pack(fill="both", expand=True)
+        body = panel.body
+
+        self.lbl = tk.Label(body, text="", bg=PANEL, fg=TEXT,
+                            font=app.f_body, anchor="w", width=46)
+        self.lbl.pack(fill="x")
+        self.lbl_plik = tk.Label(body, text="", bg=PANEL, fg=HINT,
+                                 font=app.f_small, anchor="w", width=46)
+        self.lbl_plik.pack(fill="x", pady=(2, 6))
+        self.pasek = ProgressBar(body, height=14)
+        self.pasek.pack(fill="x")
+        app._button(body, app.t("busy_cancel"), self.przerwij).pack(
+            pady=(10, 0))
+
+        self.protocol("WM_DELETE_WINDOW", self.przerwij)
+        self.bind("<Escape>", lambda e: self.przerwij())
+        self.update()
+        self.grab_set()
+
+    def przerwij(self) -> None:
+        self.przerwane = True
+
+    def krok(self, opis: str = "") -> bool:
+        """
+        Zglasza kolejna pozycje. Zwraca False, gdy uzytkownik przerwal.
+
+        Okno odswiezamy co kilka pozycji, a nie za kazdym razem: przy
+        malych plikach samo rysowanie trwaloby dluzej niz kopiowanie.
+        """
+        self.zrobione += 1
+        if self.przerwane:
+            return False
+        if self.zrobione % self.CO_ILE and self.zrobione != 1:
+            return True
+        app = self.app
+        if self.ile:
+            self.lbl.configure(text=app.t("busy_files", done=self.zrobione,
+                                          total=self.ile))
+            self.pasek.show(self.zrobione, self.ile)
+        else:
+            self.lbl.configure(text=app.t("busy_counting",
+                                          done=self.zrobione))
+        if opis:
+            self.lbl_plik.configure(text=opis[-58:])
+        try:
+            self.update()
+        except tk.TclError:
+            return False          # okno zniknelo - traktujemy jak przerwanie
+        return not self.przerwane
+
+    def zamknij(self) -> None:
+        try:
+            self.grab_release()
+            self.destroy()
+        except tk.TclError:
+            pass
 
 
 class TextEditor(tk.Toplevel):

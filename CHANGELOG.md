@@ -2,6 +2,56 @@
 
 Numery wersji odpowiadają wartości `APP_VERSION` w `styles.py`.
 
+## 1.10
+
+- Okno postępu przy kopiowaniu wielu plików i całych katalogów, z licznikiem,
+  paskiem i możliwością przerwania. Wcześniej program przy kilkuset plikach
+  nie pokazywał niczego i wyglądał na zawieszony.
+- Kopiowanie katalogu na dysk twardy: `import_tree` ma teraz ten sam zestaw
+  parametrów i to samo podsumowanie co przy dyskietce. Wcześniej wywołanie
+  z okna kończyłoby się błędem, bo podpisy obu silników się różniły.
+- Skracanie nazw na dysku daje prawdziwą postać 8.3. Raport pokazywał
+  wcześniej nazwy w rodzaju `SID MEIERS C` — ze spacjami i dwunastoznakowe —
+  które nigdzie nie istniały. Kropki pośrednie znikają, tak jak w DOS-ie:
+  `a.b.c.txt` staje się `ABC.TXT`.
+
+## 1.9
+
+- **Zapis do obrazu dysku w oknie**: pozycja „Odblokuj zapis do obrazu"
+  w menu Dyskietka. Program ostrzega przed zapisem do obrazu używanego
+  przez uruchomioną maszynę i radzi zrobić kopię; dopiero po potwierdzeniu
+  otwiera obraz ponownie w trybie zapisu i odblokowuje przyciski.
+- Zapis do obrazu **niepełnego** — na przykład niedokończonego pobierania,
+  którego tablica bloków wskazuje poza koniec pliku — jest odrzucany.
+  Trafiłby za koniec pliku, rozdmuchał go i zostawił stopkę w środku,
+  zamieniając obraz niepełny w całkiem zepsuty. Odczyt nadal działa.
+- Komunikat o skracaniu nazw do 8.3 mówi „nośnik", nie „dyskietka".
+- Sprawdzone od początku do końca: odblokowanie w oknie, wniesienie plików
+  do obrazu rozszerzalnego i `fsck.fat` bez zastrzeżeń.
+
+## 1.8
+
+- Silnik FAT16 zapisuje: pliki, katalogi, kasowanie, zmiana nazwy i etykieta
+  wolumenu. Kolejność operacji dobrana tak, by przerwanie w połowie
+  zostawiało niewykorzystane klastry, a nie wpis wskazujący na przypadkową
+  treść. Obie kopie tablicy FAT trzymane są zgodne.
+- Wynik zapisu potwierdza `fsck.fat` — bez zastrzeżeń dla FAT16 i FAT12,
+  po utworzeniu plików, katalogów, skasowaniu, zmianie nazwy i etykiety.
+- **Obraz otwarty z menu jest zawsze tylko do odczytu.** Zapis wymaga
+  sięgnięcia po silnik wprost; w oknie pojawi się w kolejnym kroku.
+- Wyszukiwanie plików rozpoznaje nazwy także po skróceniu do 8.3, więc
+  program odnajduje plik, który przed chwilą sam zapisał.
+
+## 1.7
+
+- Warstwa zapisu do obrazów dysków: sektory można zapisywać w obrazach
+  surowych oraz VHD stałych i rozszerzalnych. Przy rozszerzalnych zapis
+  w obszar, którego w pliku jeszcze nie ma, dokłada cały blok, przesuwa
+  stopkę i uzupełnia tablicę — w kolejności, która po przerwaniu zostawia
+  plik nadal dający się otworzyć.
+- Obrazy otwierają się domyślnie tylko do odczytu; zapis wymaga wyraźnego
+  wskazania. To pierwszy z trzech kroków — silnik FAT16 nadal nie zapisuje.
+
 ## 1.6.1
 
 - Okno wyboru pliku pokazuje obrazy bez względu na wielkość liter

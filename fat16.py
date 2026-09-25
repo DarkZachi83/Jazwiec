@@ -42,6 +42,7 @@ __all__ = [
     "Fat16Error",
     "FatVolume",
     "HardDiskImage",
+    "open_read_only",
     "looks_like_disk",
 ]
 
@@ -271,15 +272,32 @@ class FatVolume:
         surowe = b"".join(self.cluster_data(k) for k in self.chain(klaster))
         return self._wpisy(surowe)
 
+    @staticmethod
+    def _to_samo(nazwa: str, wpisana: str) -> bool:
+        """
+        Czy to ta sama nazwa - takze po skroceniu do postaci 8.3.
+
+        Plik zapisany jako "DO_USUNIECIA.TXT" lezy na dysku pod nazwa
+        "DO_USUNI.TXT". Bez tego porownania program nie odnajdywalby pliku,
+        ktory przed chwila sam zapisal.
+        """
+        if nazwa.upper() == wpisana.upper():
+            return True
+        rdzen, rozszerzenie = nazwa_83(nazwa)
+        skrocona = rdzen.decode("latin1").rstrip()
+        koncowka = rozszerzenie.decode("latin1").rstrip()
+        if koncowka:
+            skrocona = f"{skrocona}.{koncowka}"
+        return skrocona.upper() == wpisana.upper()
+
     def find(self, path: str) -> DirEntry | None:
         """Wpis spod sciezki. None, gdy nie ma takiego pliku."""
         czesci = [c for c in path.replace("\\", "/").split("/") if c]
         wpisy = self.root()
         znaleziony: DirEntry | None = None
         for czesc in czesci:
-            szukana = czesc.upper()
-            znaleziony = next((w for w in wpisy if w.name.upper() == szukana),
-                              None)
+            znaleziony = next(
+                (w for w in wpisy if self._to_samo(czesc, w.name)), None)
             if znaleziony is None:
                 return None
             if znaleziony.is_dir:
@@ -306,6 +324,301 @@ class FatVolume:
                         for k in self.chain(wpis.first_cluster))
         return dane[:wpis.size]
 
+    # -- zapis -------------------------------------------------------------
+
+    def _pisz_sektor(self, numer: int, dane: bytes) -> None:
+        self._dysk.write_sector(self._start + numer, dane)
+
+    def _pisz_wpis_fat(self, klaster: int, wartosc: int) -> None:
+        """
+        Zmienia jeden wpis w tablicy FAT - w pamieci i w obu kopiach na
+        dysku. Kopie musza byc zgodne, inaczej DOS zglasza blad dysku.
+        """
+        fat = bytearray(self.fat)
+        if self.bpb.bits == 16:
+            miejsce = klaster * 2
+            fat[miejsce:miejsce + 2] = (wartosc & 0xFFFF).to_bytes(2, "little")
+        else:
+            miejsce = klaster + klaster // 2
+            para = int.from_bytes(fat[miejsce:miejsce + 2], "little")
+            if klaster & 1:
+                para = (para & 0x000F) | ((wartosc & 0xFFF) << 4)
+            else:
+                para = (para & 0xF000) | (wartosc & 0xFFF)
+            fat[miejsce:miejsce + 2] = para.to_bytes(2, "little")
+        self._fat = bytes(fat)
+        # Zapisujemy tylko sektory, ktore sie zmienily - wpis moze lezec na
+        # granicy dwoch.
+        pierwszy = miejsce // self.bpb.bytes_per_sector
+        ostatni = (miejsce + 1) // self.bpb.bytes_per_sector
+        for numer in range(pierwszy, ostatni + 1):
+            od = numer * self.bpb.bytes_per_sector
+            kawalek = self._fat[od:od + self.bpb.bytes_per_sector]
+            for kopia in range(self.bpb.fats):
+                self._pisz_sektor(
+                    self.bpb.reserved + kopia * self.bpb.sectors_per_fat
+                    + numer, kawalek)
+
+    def wolne_klastry(self, ile: int) -> list[int]:
+        """Numery wolnych klastrow. Blad, gdy na partycji brak miejsca."""
+        wynik: list[int] = []
+        for klaster in range(2, self.bpb.clusters + 2):
+            if self.next_cluster(klaster) == 0:
+                wynik.append(klaster)
+                if len(wynik) == ile:
+                    return wynik
+        raise Fat16Error("brak miejsca na partycji")
+
+    def zapisz_dane(self, dane: bytes) -> int:
+        """
+        Zapisuje tresc w nowych klastrach i zwraca pierwszy z lancucha.
+
+        Pusty plik nie zajmuje zadnego klastra - tak samo robi DOS.
+        """
+        rozmiar = self.bpb.cluster_bytes
+        if not dane:
+            return 0
+        potrzeba = (len(dane) + rozmiar - 1) // rozmiar
+        klastry = self.wolne_klastry(potrzeba)
+        for numer, klaster in enumerate(klastry):
+            kawalek = dane[numer * rozmiar:(numer + 1) * rozmiar]
+            kawalek = kawalek.ljust(rozmiar, b"\x00")
+            pierwszy = (self.bpb.first_data
+                        + (klaster - 2) * self.bpb.sectors_per_cluster)
+            for i in range(self.bpb.sectors_per_cluster):
+                od = i * self.bpb.bytes_per_sector
+                self._pisz_sektor(pierwszy + i,
+                                  kawalek[od:od + self.bpb.bytes_per_sector])
+        # Lancuch wiazemy dopiero po zapisaniu danych: przerwanie w polowie
+        # zostawia wtedy niewykorzystane klastry, a nie wpis wskazujacy na
+        # przypadkowa tresc.
+        koniec = 0xFFFF if self.bpb.bits == 16 else 0xFFF
+        for numer, klaster in enumerate(klastry):
+            self._pisz_wpis_fat(klaster, koniec if numer == len(klastry) - 1
+                                else klastry[numer + 1])
+        return klastry[0]
+
+    def zwolnij_lancuch(self, pierwszy: int) -> None:
+        for klaster in self.chain(pierwszy):
+            self._pisz_wpis_fat(klaster, 0)
+
+    # -- katalogi: zapis ---------------------------------------------------
+
+    def _sektory_katalogu(self, klaster: int | None) -> list[int]:
+        """Numery sektorow katalogu - glownego albo ze wskazanego klastra."""
+        if klaster is None:
+            return list(range(self.bpb.first_root,
+                              self.bpb.first_root + self.bpb.root_sectors))
+        wynik = []
+        for k in self.chain(klaster):
+            pierwszy = (self.bpb.first_data
+                        + (k - 2) * self.bpb.sectors_per_cluster)
+            wynik += list(range(pierwszy,
+                                pierwszy + self.bpb.sectors_per_cluster))
+        return wynik
+
+    def _zapisz_wpis(self, klaster: int | None, pozycja: int,
+                     dane: bytes) -> None:
+        sektory = self._sektory_katalogu(klaster)
+        na_sektor = self.bpb.bytes_per_sector // ROZMIAR_WPISU
+        numer, w_sektorze = divmod(pozycja, na_sektor)
+        if numer >= len(sektory):
+            raise Fat16Error("katalog nie ma juz miejsca na wpisy")
+        tresc = bytearray(self.sektor(sektory[numer]))
+        od = w_sektorze * ROZMIAR_WPISU
+        tresc[od:od + ROZMIAR_WPISU] = dane
+        self._pisz_sektor(sektory[numer], bytes(tresc))
+
+    def _wolna_pozycja(self, klaster: int | None) -> int:
+        """
+        Pierwsza wolna pozycja w katalogu.
+
+        Katalog glowny ma staly rozmiar i konczy sie twardym limitem;
+        podkatalog mozna powiekszyc o kolejny klaster.
+        """
+        sektory = self._sektory_katalogu(klaster)
+        na_sektor = self.bpb.bytes_per_sector // ROZMIAR_WPISU
+        for numer, sektor in enumerate(sektory):
+            tresc = self.sektor(sektor)
+            for i in range(na_sektor):
+                pierwszy = tresc[i * ROZMIAR_WPISU]
+                if pierwszy in (KONIEC_KATALOGU, SKASOWANY):
+                    return numer * na_sektor + i
+        if klaster is None:
+            raise Fat16Error(
+                f"katalog glowny jest pelny ({self.bpb.root_entries} pozycji)")
+        return self._powieksz_katalog(klaster) * na_sektor
+
+    def _powieksz_katalog(self, klaster: int) -> int:
+        """Dokłada katalogowi klaster i zwraca numer pierwszego sektora."""
+        lancuch = self.chain(klaster)
+        nowy = self.wolne_klastry(1)[0]
+        pusty = bytes(self.bpb.cluster_bytes)
+        pierwszy = (self.bpb.first_data
+                    + (nowy - 2) * self.bpb.sectors_per_cluster)
+        for i in range(self.bpb.sectors_per_cluster):
+            od = i * self.bpb.bytes_per_sector
+            self._pisz_sektor(pierwszy + i,
+                              pusty[od:od + self.bpb.bytes_per_sector])
+        koniec = 0xFFFF if self.bpb.bits == 16 else 0xFFF
+        self._pisz_wpis_fat(nowy, koniec)
+        self._pisz_wpis_fat(lancuch[-1], nowy)
+        return len(lancuch) * self.bpb.sectors_per_cluster
+
+    # -- operacje na plikach ------------------------------------------------
+
+    def _katalog_sciezki(self, path: str) -> tuple[int | None, str]:
+        """Klaster katalogu, w ktorym lezy sciezka, i sama nazwa."""
+        czesci = [c for c in path.replace("\\", "/").split("/") if c]
+        if not czesci:
+            raise Fat16Error("pusta sciezka")
+        nazwa = czesci[-1]
+        if len(czesci) == 1:
+            return None, nazwa
+        rodzic = self.find("/".join(czesci[:-1]))
+        if rodzic is None or not rodzic.is_dir:
+            raise Fat16Error("nie ma takiego katalogu: "
+                             + "/".join(czesci[:-1]))
+        return rodzic.first_cluster, nazwa
+
+    def _pozycja_wpisu(self, klaster: int | None, nazwa: str) -> int | None:
+        """Numer pozycji wpisu o tej nazwie albo None."""
+        sektory = self._sektory_katalogu(klaster)
+        na_sektor = self.bpb.bytes_per_sector // ROZMIAR_WPISU
+        for numer, sektor in enumerate(sektory):
+            tresc = self.sektor(sektor)
+            for i in range(na_sektor):
+                wpis = tresc[i * ROZMIAR_WPISU:(i + 1) * ROZMIAR_WPISU]
+                if wpis[0] == KONIEC_KATALOGU:
+                    return None
+                if wpis[0] == SKASOWANY:
+                    continue
+                if wpis[0x0B] & ATTR_LONG_NAME == ATTR_LONG_NAME:
+                    continue
+                rdzen = wpis[0:8].decode("latin1").rstrip()
+                rozsz = wpis[8:11].decode("latin1").rstrip()
+                pelna = f"{rdzen}.{rozsz}" if rozsz else rdzen
+                if self._to_samo(nazwa, pelna):
+                    return numer * na_sektor + i
+        return None
+
+    def write_file(self, path: str, dane: bytes) -> None:
+        """Zapisuje plik, nadpisujac istniejacy o tej samej nazwie."""
+        klaster_katalogu, nazwa = self._katalog_sciezki(path)
+        stary = self.find(path)
+        if stary is not None and stary.is_dir:
+            raise Fat16Error(f"to katalog, nie plik: {path}")
+        pierwszy = self.zapisz_dane(dane)
+        wpis = _buduj_wpis(nazwa, 0x20, pierwszy, len(dane))
+        pozycja = self._pozycja_wpisu(klaster_katalogu, nazwa)
+        if pozycja is None:
+            pozycja = self._wolna_pozycja(klaster_katalogu)
+        self._zapisz_wpis(klaster_katalogu, pozycja, wpis)
+        if stary is not None and stary.first_cluster >= 2:
+            self.zwolnij_lancuch(stary.first_cluster)
+
+    def mkdir(self, path: str) -> None:
+        klaster_katalogu, nazwa = self._katalog_sciezki(path)
+        if self.find(path) is not None:
+            raise Fat16Error(f"juz istnieje: {path}")
+        nowy = self.wolne_klastry(1)[0]
+        koniec = 0xFFFF if self.bpb.bits == 16 else 0xFFF
+        # Katalog zaczyna sie od wpisow "." i ".." - bez nich DOS nie
+        # potrafi z niego wyjsc, a fsck zglasza blad.
+        tresc = bytearray(self.bpb.cluster_bytes)
+        kropka = bytearray(_buduj_wpis("X", 0x10, nowy, 0))
+        kropka[0:11] = b".          "
+        dwie = bytearray(_buduj_wpis("X", 0x10,
+                                     klaster_katalogu or 0, 0))
+        dwie[0:11] = b"..         "
+        tresc[0:ROZMIAR_WPISU] = kropka
+        tresc[ROZMIAR_WPISU:2 * ROZMIAR_WPISU] = dwie
+        pierwszy = (self.bpb.first_data
+                    + (nowy - 2) * self.bpb.sectors_per_cluster)
+        for i in range(self.bpb.sectors_per_cluster):
+            od = i * self.bpb.bytes_per_sector
+            self._pisz_sektor(pierwszy + i,
+                              bytes(tresc[od:od + self.bpb.bytes_per_sector]))
+        self._pisz_wpis_fat(nowy, koniec)
+        pozycja = self._wolna_pozycja(klaster_katalogu)
+        self._zapisz_wpis(klaster_katalogu, pozycja,
+                          _buduj_wpis(nazwa, 0x10, nowy, 0))
+
+    def remove(self, path: str, recursive: bool = False) -> None:
+        klaster_katalogu, nazwa = self._katalog_sciezki(path)
+        wpis = self.find(path)
+        if wpis is None:
+            raise Fat16Error(f"nie ma takiego pliku: {path}")
+        if wpis.is_dir:
+            zawartosc = [w for w in self.directory(wpis.first_cluster)
+                         if w.name not in (".", "..")]
+            if zawartosc and not recursive:
+                raise Fat16Error(f"katalog nie jest pusty: {path}")
+            for w in zawartosc:
+                self.remove(f"{path.rstrip('/')}/{w.name}", recursive=True)
+        pozycja = self._pozycja_wpisu(klaster_katalogu, nazwa)
+        if pozycja is None:
+            raise Fat16Error(f"nie ma takiego pliku: {path}")
+        # Najpierw wpis, potem klastry: przerwanie zostawia wtedy niezajete
+        # miejsce, a nie plik wskazujacy na zwolniona tresc.
+        sektory = self._sektory_katalogu(klaster_katalogu)
+        na_sektor = self.bpb.bytes_per_sector // ROZMIAR_WPISU
+        numer, w_sektorze = divmod(pozycja, na_sektor)
+        tresc = bytearray(self.sektor(sektory[numer]))
+        tresc[w_sektorze * ROZMIAR_WPISU] = SKASOWANY
+        self._pisz_sektor(sektory[numer], bytes(tresc))
+        if wpis.first_cluster >= 2:
+            self.zwolnij_lancuch(wpis.first_cluster)
+
+    def rename(self, path: str, nowa_nazwa: str) -> None:
+        klaster_katalogu, nazwa = self._katalog_sciezki(path)
+        wpis = self.find(path)
+        if wpis is None:
+            raise Fat16Error(f"nie ma takiego pliku: {path}")
+        pozycja = self._pozycja_wpisu(klaster_katalogu, nazwa)
+        sektory = self._sektory_katalogu(klaster_katalogu)
+        na_sektor = self.bpb.bytes_per_sector // ROZMIAR_WPISU
+        numer, w_sektorze = divmod(pozycja, na_sektor)
+        tresc = bytearray(self.sektor(sektory[numer]))
+        od = w_sektorze * ROZMIAR_WPISU
+        rdzen, rozszerzenie = nazwa_83(nowa_nazwa)
+        tresc[od:od + 8] = rdzen
+        tresc[od + 8:od + 11] = rozszerzenie
+        self._pisz_sektor(sektory[numer], bytes(tresc))
+
+    def set_label(self, etykieta: str) -> None:
+        """
+        Etykieta wolumenu: wpis w katalogu glownym i pole w bloku BPB.
+
+        DOS czyta ja z katalogu, a narzedzia rozne - wiec zmieniamy obie,
+        zeby nie pokazywaly czegos innego.
+        """
+        tekst = etykieta.upper()[:11].ljust(11)
+        sektory = self._sektory_katalogu(None)
+        na_sektor = self.bpb.bytes_per_sector // ROZMIAR_WPISU
+        pozycja = None
+        for numer, sektor in enumerate(sektory):
+            tresc = self.sektor(sektor)
+            for i in range(na_sektor):
+                wpis = tresc[i * ROZMIAR_WPISU:(i + 1) * ROZMIAR_WPISU]
+                if wpis[0] == KONIEC_KATALOGU:
+                    break
+                if wpis[0] != SKASOWANY and wpis[0x0B] == ATTR_VOLUME_ID:
+                    pozycja = numer * na_sektor + i
+                    break
+            if pozycja is not None:
+                break
+        nowy = bytearray(_buduj_wpis("X", ATTR_VOLUME_ID, 0, 0))
+        nowy[0:11] = tekst.encode("latin1")
+        if pozycja is None:
+            pozycja = self._wolna_pozycja(None)
+        self._zapisz_wpis(None, pozycja, bytes(nowy))
+        rozruchowy = bytearray(self.sektor(0))
+        if rozruchowy[0x26] == 0x29:
+            rozruchowy[0x2B:0x36] = tekst.encode("latin1")
+            self._pisz_sektor(0, bytes(rozruchowy))
+        self.bpb = parse_bpb(bytes(rozruchowy))
+
     # -- miejsce -----------------------------------------------------------
 
     @property
@@ -317,6 +630,51 @@ class FatVolume:
         wolne = sum(1 for klaster in range(2, self.bpb.clusters + 2)
                     if self.next_cluster(klaster) == 0)
         return wolne * self.bpb.cluster_bytes
+
+
+def _pola_daty(kiedy: datetime.datetime | None = None) -> bytes:
+    """Cztery bajty czasu i daty we wpisie katalogu. DOS liczy od 1980."""
+    kiedy = kiedy or datetime.datetime.now()
+    rok = max(1980, min(2107, kiedy.year))
+    czas = (kiedy.hour << 11) | (kiedy.minute << 5) | (kiedy.second // 2)
+    data = ((rok - 1980) << 9) | (kiedy.month << 5) | kiedy.day
+    return czas.to_bytes(2, "little") + data.to_bytes(2, "little")
+
+
+def nazwa_83(nazwa: str) -> tuple[bytes, bytes]:
+    """
+    Nazwa w postaci 8.3, jakiej wymaga wpis katalogu.
+
+    Znaki niedozwolone zamieniamy na podkreslenie, zamiast odrzucac plik -
+    tak samo robily narzedzia z epoki przy kopiowaniu z dluzszych nazw.
+    """
+    zakazane = set('"*+,/:;<=>?[\\]|')
+    rdzen, _, rozszerzenie = nazwa.rpartition(".")
+    if not rdzen:
+        rdzen, rozszerzenie = nazwa, ""
+
+    def oczysc(tekst: str, ile: int) -> str:
+        # Kropki posrednie znikaja, bo w polu nazwy sa niedozwolone: DOS
+        # zapisuje "a.b.c.txt" jako "ABC.TXT". Spacje tak samo.
+        wynik = "".join("_" if z in zakazane or ord(z) < 0x20 or ord(z) > 0xFF
+                        else z for z in tekst.upper())
+        return wynik.replace(" ", "").replace(".", "")[:ile]
+
+    return (oczysc(rdzen, 8).ljust(8).encode("latin1"),
+            oczysc(rozszerzenie, 3).ljust(3).encode("latin1"))
+
+
+def _buduj_wpis(nazwa: str, atrybuty: int, klaster: int, rozmiar: int,
+                kiedy: datetime.datetime | None = None) -> bytes:
+    rdzen, rozszerzenie = nazwa_83(nazwa)
+    wpis = bytearray(ROZMIAR_WPISU)
+    wpis[0:8] = rdzen
+    wpis[8:11] = rozszerzenie
+    wpis[0x0B] = atrybuty
+    wpis[0x16:0x1A] = _pola_daty(kiedy)
+    wpis[0x1A:0x1C] = (klaster & 0xFFFF).to_bytes(2, "little")
+    wpis[0x1C:0x20] = (rozmiar & 0xFFFFFFFF).to_bytes(4, "little")
+    return bytes(wpis)
 
 
 def _data(wpis: bytes) -> datetime.datetime | None:
@@ -337,16 +695,21 @@ class HardDiskImage:
     """
     Obraz dysku twardego otwarty w oknie programu.
 
-    Wyglada dla reszty programu jak obraz dyskietki, tylko z dwiema
-    roznicami: jest tylko do odczytu i ma partycje, wiec trzeba wskazac,
-    ktora z nich pokazujemy.
+    Wyglada dla reszty programu jak obraz dyskietki, z jedna roznica: ma
+    partycje, wiec trzeba wskazac, ktora pokazujemy. Otwiera sie domyslnie
+    tylko do odczytu - zapis wymaga wyraznego zadania.
     """
 
     def __init__(self, path: str | os.PathLike, read_only: bool = True,
                  partition: int | None = None):
         self.path = os.path.abspath(os.fspath(path))
+        # Domyslnie tylko do odczytu: zapis do obrazu dysku wymaga
+        # wyraznego zadania, bo pomylka kosztuje caly system plikow
+        # maszyny, a nie jedna dyskietke.
+        self._read_only = bool(read_only)
         try:
-            self._dysk = partitions.open_disk(self.path)
+            self._dysk = partitions.open_disk(self.path,
+                                              read_only=self._read_only)
         except partitions.DiskError as exc:
             raise Fat16Error(str(exc)) from exc
         self.partitions = partitions.read_partitions(self._dysk)
@@ -382,7 +745,13 @@ class HardDiskImage:
 
     @property
     def read_only(self) -> bool:
-        return True
+        return self._read_only
+
+    def _wymaga_zapisu(self) -> None:
+        if self._read_only:
+            raise Fat16Error(
+                "obraz otwarty tylko do odczytu - otworz go do zapisu, "
+                "zeby zmieniac zawartosc")
 
     @property
     def format_name(self) -> str:
@@ -445,19 +814,141 @@ class HardDiskImage:
 
     @staticmethod
     def short_name(name: str) -> str:
-        return name.upper()[:12]
+        """
+        Nazwa w postaci, w jakiej naprawde wyladuje na dysku.
 
-    # -- zapis: nie tutaj ---------------------------------------------------
+        Obcinanie do dwunastu znakow dawalo napisy ze spacjami w rodzaju
+        "SID MEIERS C" - raport pokazywal wtedy nazwe, ktora nigdzie nie
+        istniala, bo wpis katalogu i tak przechodzi przez postac 8.3.
+        """
+        rdzen, rozszerzenie = nazwa_83(name)
+        podstawa = rdzen.decode("latin1").rstrip()
+        koncowka = rozszerzenie.decode("latin1").rstrip()
+        return f"{podstawa}.{koncowka}" if koncowka else podstawa
 
-    def _tylko_odczyt(self, *_, **__):
-        raise Fat16Error(
-            "obrazy dyskow twardych sa na razie tylko do odczytu")
+    # -- zapis --------------------------------------------------------------
 
-    write_file = import_file = import_tree = _tylko_odczyt
-    mkdir = remove = rename = set_label = _tylko_odczyt
+    def write_file(self, path: str, dane: bytes) -> None:
+        self._wymaga_zapisu()
+        self.volume.write_file(path, dane)
+        self._dysk.flush()
+
+    def import_file(self, host_path: str | os.PathLike,
+                    dest: str = "/") -> str:
+        """Wnosi plik z komputera. Zwraca sciezke, pod ktora wyladowal."""
+        self._wymaga_zapisu()
+        with open(host_path, "rb") as fh:
+            dane = fh.read()
+        nazwa = os.path.basename(os.fspath(host_path))
+        cel = self.join(dest, self.short_name(nazwa))
+        self.volume.write_file(cel, dane)
+        self._dysk.flush()
+        return cel
+
+    def import_tree(self, host_path: str | os.PathLike, dest_dir: str = "/",
+                    include_root: bool = True, on_item=None) -> dict:
+        """
+        Kopiuje katalog z komputera na dysk wraz z cala zawartoscia.
+
+        Ten sam zestaw parametrow i to samo podsumowanie co przy dyskietce -
+        okno wola obie drogi tak samo i nie moze ich odrozniac.
+
+        on_item dostaje sciezke kazdego kopiowanego pliku; zwrocenie False
+        przerywa kopiowanie. Przy trzech tysiacach plikow to jedyny sposob,
+        zeby okno pokazalo postep i dalo sie zatrzymac.
+        """
+        self._wymaga_zapisu()
+        host_path = os.fspath(host_path)
+        if not os.path.isdir(host_path):
+            raise Fat16Error(f"to nie jest katalog: {host_path}")
+
+        raport = {"files": 0, "dirs": 0, "bytes": 0,
+                  "renamed": [], "failed": []}
+        cel = dest_dir
+        if include_root:
+            nazwa = os.path.basename(os.path.normpath(host_path))
+            krotka = self.short_name(nazwa)
+            if not self.exists(self.join(dest_dir, krotka)):
+                self.volume.mkdir(self.join(dest_dir, krotka))
+            if krotka.upper() != nazwa.upper():
+                raport["renamed"].append(f"{nazwa} -> {krotka}")
+            raport["dirs"] += 1
+            cel = self.join(dest_dir, krotka)
+
+        self._kopiuj_drzewo(host_path, cel, raport, on_item)
+        self._dysk.flush()
+        return raport
+
+    def _kopiuj_drzewo(self, zrodlo: str, cel: str, raport: dict,
+                       on_item) -> bool:
+        """Zwraca False, gdy kopiowanie zostalo przerwane."""
+        try:
+            pozycje = sorted(os.scandir(zrodlo), key=lambda w: w.name)
+        except OSError as exc:
+            raport["failed"].append(f"{zrodlo}: {exc}")
+            return True
+        for pozycja in pozycje:
+            if pozycja.is_symlink():
+                continue            # na dysku nie ma odpowiednika dowiazan
+            if on_item is not None and on_item(pozycja.path) is False:
+                return False
+            krotka = self.short_name(pozycja.name)
+            if krotka.upper() != pozycja.name.upper():
+                raport["renamed"].append(f"{pozycja.name} -> {krotka}")
+            docelowa = self.join(cel, krotka)
+            try:
+                if pozycja.is_dir():
+                    if not self.exists(docelowa):
+                        self.volume.mkdir(docelowa)
+                    raport["dirs"] += 1
+                    if not self._kopiuj_drzewo(pozycja.path, docelowa,
+                                               raport, on_item):
+                        return False
+                else:
+                    with open(pozycja.path, "rb") as fh:
+                        dane = fh.read()
+                    self.volume.write_file(docelowa, dane)
+                    raport["files"] += 1
+                    raport["bytes"] += len(dane)
+            except (Fat16Error, OSError) as exc:
+                raport["failed"].append(f"{pozycja.name}: {exc}")
+        return True
+
+    def mkdir(self, path: str) -> None:
+        self._wymaga_zapisu()
+        self.volume.mkdir(path)
+        self._dysk.flush()
+
+    def remove(self, path: str, recursive: bool = False) -> None:
+        self._wymaga_zapisu()
+        self.volume.remove(path, recursive=recursive)
+        self._dysk.flush()
+
+    def rename(self, path: str, nowa_nazwa: str) -> None:
+        self._wymaga_zapisu()
+        self.volume.rename(path, nowa_nazwa)
+        self._dysk.flush()
+
+    def set_label(self, etykieta: str) -> None:
+        self._wymaga_zapisu()
+        self.volume.set_label(etykieta)
+        self._dysk.flush()
 
     def __repr__(self) -> str:
         return f"<HardDiskImage {os.path.basename(self.path)} {self.format_name}>"
+
+
+def open_read_only(path: str | os.PathLike, read_only: bool = True,
+                   partition: int | None = None) -> HardDiskImage:
+    """
+    Otwiera obraz dysku zawsze tylko do odczytu.
+
+    Ta droga prowadzi przez warstwe silnikow, czyli z menu programu.
+    Zapis do obrazu dysku wymaga wyraznej decyzji, wiec siega sie po niego
+    wprost, a nie przy zwyklym otwarciu pliku - inaczej pomylka kosztuje
+    caly system plikow maszyny.
+    """
+    return HardDiskImage(path, read_only=True, partition=partition)
 
 
 def looks_like_disk(header: bytes, size: int) -> bool:

@@ -77,6 +77,24 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "part_open": "Otworz",
         "part_others": "Pozostale partycje (program ich nie czyta):",
         "menu_partition": "Wybierz partycje...",
+        "menu_unlock": "Odblokuj zapis do obrazu...",
+        "busy_title": "Kopiowanie",
+        "busy_files": "Skopiowano {done} z {total}",
+        "busy_counting": "Kopiowanie: {done} pozycji",
+        "busy_cancel": "Przerwij",
+        "busy_cancelled": "Kopiowanie przerwane po {count} pozycjach.",
+        "unlock_title": "Zapis do obrazu dysku",
+        "unlock_warn": "Chcesz odblokowac zapis do obrazu:\n{path}\n\n"
+                       "Zanim to zrobisz, zamknij maszyne, ktora go uzywa. "
+                       "Zapis do obrazu\nuzywanego w tej chwili przez 86Box "
+                       "albo inny emulator niszczy caly\nsystem plikow, a "
+                       "nie pojedynczy plik.\n\nZrob kopie obrazu, jesli "
+                       "jego zawartosc jest dla Ciebie wazna.\n\n"
+                       "Odblokowac zapis?",
+        "unlock_done": "Zapis odblokowany - {path}",
+        "unlock_failed": "Nie udalo sie otworzyc obrazu do zapisu: {reason}",
+        "unlock_locked": "Obraz jest juz otwarty do zapisu.",
+        "unlock_nothing": "Otworz najpierw obraz dysku twardego.",
         "status_partition": "Partycja {index}: {label}",
         "readonly_hint": "Obraz dysku twardego - tylko do odczytu.",
         "gw_title": "Greaseweazle",
@@ -365,7 +383,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "warn_skipped": "Pominieto:\n{list}",
         "warn_not_removed": "Nie usunieto:\n{list}",
         "warn_shortened": "DOS dopuszcza wylacznie nazwy 8.3, wiec czesc "
-                          "plikow trafila na dyskietke pod skrocona "
+                          "plikow trafila na nosnik pod skrocona "
                           "nazwa:\n\n{list}",
         "and_more": " i {count} innych",
 
@@ -632,6 +650,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "part_open": "Open",
         "part_others": "Other partitions (not readable by the program):",
         "menu_partition": "Choose partition...",
+        "menu_unlock": "Unlock writing to image...",
+        "busy_title": "Copying",
+        "busy_files": "Copied {done} of {total}",
+        "busy_counting": "Copying: {done} items",
+        "busy_cancel": "Cancel",
+        "busy_cancelled": "Copying stopped after {count} items.",
+        "unlock_title": "Writing to a disk image",
+        "unlock_warn": "You are about to unlock writing to:\n{path}\n\n"
+                       "Shut down the machine that uses it first. Writing to "
+                       "an image that\n86Box or another emulator has open "
+                       "destroys a whole filesystem, not\na single file."
+                       "\n\nMake a copy of the image if its contents matter "
+                       "to you.\n\nUnlock writing?",
+        "unlock_done": "Writing unlocked - {path}",
+        "unlock_failed": "Could not open the image for writing: {reason}",
+        "unlock_locked": "The image is already open for writing.",
+        "unlock_nothing": "Open a hard disk image first.",
         "status_partition": "Partition {index}: {label}",
         "readonly_hint": "Hard disk image - read-only.",
         "gw_title": "Greaseweazle",
@@ -917,7 +952,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "warn_skipped": "Skipped:\n{list}",
         "warn_not_removed": "Not deleted:\n{list}",
         "warn_shortened": "DOS only allows 8.3 names, so some files "
-                          "landed on the floppy under a shortened "
+                          "landed on the medium under a shortened "
                           "name:\n\n{list}",
         "and_more": " and {count} more",
 

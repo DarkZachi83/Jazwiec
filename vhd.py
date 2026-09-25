@@ -20,7 +20,16 @@ Trzy odmiany formatu:
                    obslugujemy; program mowi to wprost, zamiast pokazywac
                    nieprawdziwa zawartosc.
 
-Modul tylko czyta. Zapis do obrazu dysku to osobna sprawa i osobne ryzyko.
+Zapis
+    Obraz otwarty do zapisu przyjmuje sektory w miejsce dotychczasowych.
+    Przy odmianie rozszerzalnej zapis w obszar, ktorego w pliku jeszcze nie
+    ma, wymaga dolozenia calego bloku: nowy blok dopisujemy na koncu, przed
+    stopka, i wpisujemy jego polozenie do tablicy. Stopka wedruje wtedy
+    dalej, a jej kopia na poczatku pliku zostaje bez zmian.
+
+    Kolejnosc ma znaczenie: najpierw blok z danymi, potem tablica, na koncu
+    stopka. Przerwanie w polowie zostawia wtedy plik, ktory nadal da sie
+    otworzyc, zamiast obrazu z tablica wskazujaca w pustke.
 
 Wiersz polecen:
     python3 vhd.py info dysk.vhd
@@ -119,9 +128,10 @@ class VhdImage:
     bajtow czy z rozproszonych blokow - zostaje wewnatrz.
     """
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, read_only: bool = True):
         self.path = os.path.abspath(path)
-        self._plik = open(self.path, "rb")
+        self.read_only = read_only
+        self._plik = open(self.path, "rb" if read_only else "r+b")
         try:
             self._wczytaj()
         except Exception:
@@ -143,11 +153,13 @@ class VhdImage:
         if self.footer.kind not in (STALA, ROZSZERZALNA):
             raise VhdError(f"nieznana odmiana VHD: {self.footer.kind}")
 
+        self.truncated = False
         self._bat: list[int] = []
         self._blok = 0
         self._bitmapa = 0
         if self.footer.kind == ROZSZERZALNA:
             self._wczytaj_tablice()
+            self._sprawdz_kompletnosc(rozmiar_pliku)
 
     def _wczytaj_tablice(self) -> None:
         """Naglowek odmiany rozszerzalnej i tablica blokow."""
@@ -164,11 +176,34 @@ class VhdImage:
         # sektorow - dane bloku zaczynaja sie dopiero za nia.
         bitow = self._blok // SEKTOR
         self._bitmapa = ((bitow + 7) // 8 + SEKTOR - 1) // SEKTOR * SEKTOR
+        self._tablica_od = tablica_od
         self._plik.seek(tablica_od)
         surowa = self._plik.read(4 * wpisow)
         if len(surowa) < 4 * wpisow:
             raise VhdError("tablica blokow jest ucieta")
         self._bat = list(struct.unpack(f">{wpisow}I", surowa))
+
+    def _sprawdz_kompletnosc(self, rozmiar_pliku: int) -> None:
+        """
+        Czy wszystkie zajete bloki naprawde leza w pliku.
+
+        Obraz uciety - na przyklad niedokonczone pobieranie - ma tablice
+        wskazujaca poza koniec pliku. Do odczytu to znosimy, bo brakujace
+        miejsca daja zera i lepiej pokazac czesc niz nic. Zapis odmawiamy:
+        trafilby pod przesuniecie za koncem pliku, rozdmuchal go i zostawil
+        stopke w srodku, czyli zamienil obraz niepelny w calkiem zepsuty.
+        """
+        potrzeba = 0
+        for wpis in self._bat:
+            if wpis == NIEZAJETY:
+                continue
+            potrzeba = max(potrzeba,
+                           wpis * SEKTOR + self._bitmapa + self._blok)
+        self.truncated = potrzeba + SEKTOR > rozmiar_pliku
+        if self.truncated and not self.read_only:
+            raise VhdError(
+                "obraz jest niepelny - tablica blokow wskazuje poza koniec "
+                "pliku. Zapis moglby go zniszczyc calkiem")
 
     # -- odczyt ------------------------------------------------------------
 
@@ -209,6 +244,95 @@ class VhdImage:
         """Kilka kolejnych sektorow naraz."""
         return b"".join(self.read_sector(lba + i) for i in range(count))
 
+    # -- zapis -------------------------------------------------------------
+
+    def write_sector(self, lba: int, dane: bytes) -> None:
+        """Jeden sektor w miejsce dotychczasowego."""
+        if self.read_only:
+            raise VhdError("obraz otwarty tylko do odczytu")
+        if len(dane) != SEKTOR:
+            raise VhdError(f"sektor ma {len(dane)} B zamiast {SEKTOR}")
+        if not 0 <= lba < self.sector_count:
+            raise VhdError(f"sektor {lba} poza dyskiem "
+                           f"({self.sector_count} sektorow)")
+        if self.footer.kind == STALA:
+            self._plik.seek(lba * SEKTOR)
+            self._plik.write(dane)
+            return
+        blok, w_bloku = divmod(lba, self._blok // SEKTOR)
+        if blok >= len(self._bat):
+            raise VhdError(f"blok {blok} poza tablica obrazu")
+        if self._bat[blok] == NIEZAJETY:
+            self._doloz_blok(blok)
+        self._plik.seek(self._bat[blok] * SEKTOR + self._bitmapa
+                        + w_bloku * SEKTOR)
+        self._plik.write(dane)
+        self._zaznacz_w_bitmapie(blok, w_bloku)
+
+    def write(self, lba: int, dane: bytes) -> None:
+        """Kilka kolejnych sektorow naraz."""
+        if len(dane) % SEKTOR:
+            raise VhdError("dane nie sa wielokrotnoscia sektora")
+        for numer in range(len(dane) // SEKTOR):
+            self.write_sector(lba + numer,
+                              dane[numer * SEKTOR:(numer + 1) * SEKTOR])
+
+    def _doloz_blok(self, blok: int) -> None:
+        """
+        Doklada blok, ktorego w pliku jeszcze nie ma.
+
+        Nowy blok ladzie na koncu, w miejscu stopki, a stopka wedruje za
+        niego. Zapisujemy w kolejnosci: blok, tablica, stopka - przerwanie
+        w polowie zostawia wtedy plik, ktory nadal da sie otworzyc.
+        """
+        # Stopke pobieramy najpierw: jej odczytanie przesuwa wskaznik pliku,
+        # a zapis "w biezacym miejscu" wyladowalby na naglowku obrazu.
+        stopka = self._stopka_bajty()
+        self._plik.seek(0, os.SEEK_END)
+        koniec = self._plik.tell()
+        poczatek = (koniec - SEKTOR) // SEKTOR      # stopka ustepuje miejsca
+        self._plik.seek(poczatek * SEKTOR)
+        self._plik.write(bytes(self._bitmapa + self._blok))
+        self._plik.write(stopka)
+        self._bat[blok] = poczatek
+        self._zapisz_wpis_tablicy(blok)
+        self._plik.flush()
+
+    def _zapisz_wpis_tablicy(self, blok: int) -> None:
+        self._plik.seek(self._tablica_od + blok * 4)
+        self._plik.write(struct.pack(">I", self._bat[blok]))
+
+    def _zaznacz_w_bitmapie(self, blok: int, sektor: int) -> None:
+        """
+        Bitmapa mowi, ktore sektory bloku zostaly zapisane.
+
+        Czytniki uzywaja jej rozmaicie, ale obraz z bitmapa niezgodna
+        z trescia jest formalnie bledny - wiec ja uzupelniamy.
+        """
+        miejsce = self._bat[blok] * SEKTOR + sektor // 8
+        self._plik.seek(miejsce)
+        bajt = self._plik.read(1) or b"\x00"
+        nowy = bajt[0] | (0x80 >> (sektor % 8))
+        if nowy != bajt[0]:
+            self._plik.seek(miejsce)
+            self._plik.write(bytes([nowy]))
+
+    def _stopka_bajty(self) -> bytes:
+        """Stopka do dopisania na koncu - bierzemy kopie z poczatku pliku."""
+        self._plik.seek(0)
+        poczatek = self._plik.read(SEKTOR)
+        if poczatek[:8] == KOSMYK_STOPKI:
+            return poczatek
+        self._plik.seek(0, os.SEEK_END)
+        koniec = self._plik.tell()
+        self._plik.seek(koniec - SEKTOR)
+        return self._plik.read(SEKTOR)
+
+    def flush(self) -> None:
+        if not self.read_only and not self._plik.closed:
+            self._plik.flush()
+            os.fsync(self._plik.fileno())
+
     @staticmethod
     def _dopelnij(dane: bytes) -> bytes:
         """Plik uciety w polowie sektora nie moze wywracac odczytu."""
@@ -218,6 +342,9 @@ class VhdImage:
 
     def close(self) -> None:
         if not self._plik.closed:
+            if not self.read_only:
+                self._plik.flush()
+                os.fsync(self._plik.fileno())
             self._plik.close()
 
     def __enter__(self) -> "VhdImage":
@@ -231,8 +358,8 @@ class VhdImage:
                 f"{self.kind_name} {self.size} B>")
 
 
-def open_image(path: str) -> VhdImage:
-    return VhdImage(path)
+def open_image(path: str, read_only: bool = True) -> VhdImage:
+    return VhdImage(path, read_only=read_only)
 
 
 def looks_like_vhd(path: str) -> bool:

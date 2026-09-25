@@ -249,5 +249,144 @@ class WierszPolecen(PrzypadekZKatalogiem):
         self.assertNotIn("Traceback", bledy)
 
 
+
+class ZapisDoObrazu(PrzypadekZKatalogiem):
+    """
+    Zapis sektorow. Przy odmianie rozszerzalnej najciekawszy jest przypadek,
+    gdy trafia on w obszar, ktorego w pliku jeszcze nie ma - trzeba wtedy
+    dolozyc caly blok i przesunac stopke.
+    """
+
+    BLOK = 4096
+
+    def rozszerzalny(self, bloki: dict, blokow: int = 4) -> str:
+        pomocnik = ObrazRozszerzalny(methodName="test_czyta_z_blokow")
+        pomocnik.katalog = self.katalog
+        pomocnik.BLOK = self.BLOK
+        return pomocnik.zbuduj(bloki, blokow)
+
+    def staly(self, sektorow: int = 8) -> str:
+        sciezka = self.sciezka("staly.vhd")
+        with open(sciezka, "wb") as fh:
+            fh.write(bytes(sektorow * SEKTOR) + stopka(sektorow * SEKTOR))
+        return sciezka
+
+    def test_tylko_do_odczytu_nie_pozwala_pisac(self):
+        with vhd.open_image(self.staly()) as obraz:
+            with self.assertRaises(vhd.VhdError):
+                obraz.write_sector(0, b"x" * SEKTOR)
+
+    def test_zapis_do_stalego(self):
+        sciezka = self.staly()
+        with vhd.open_image(sciezka, read_only=False) as obraz:
+            obraz.write_sector(3, b"A" * SEKTOR)
+        with vhd.open_image(sciezka) as obraz:
+            self.assertEqual(obraz.read_sector(3), b"A" * SEKTOR)
+            self.assertEqual(obraz.read_sector(2), bytes(SEKTOR))
+
+    def test_stopka_zostaje_na_koncu(self):
+        """Stopka doklejona w zlym miejscu psuje caly obraz."""
+        sciezka = self.staly()
+        with vhd.open_image(sciezka, read_only=False) as obraz:
+            obraz.write_sector(7, b"Z" * SEKTOR)
+        with vhd.open_image(sciezka) as obraz:
+            self.assertTrue(obraz.footer.checksum_ok)
+            self.assertEqual(obraz.sector_count, 8)
+
+    def test_zapis_w_istniejacy_blok(self):
+        sciezka = self.rozszerzalny({0: 0xAA})
+        przed = os.path.getsize(sciezka)
+        with vhd.open_image(sciezka, read_only=False) as obraz:
+            obraz.write_sector(2, b"N" * SEKTOR)
+        self.assertEqual(os.path.getsize(sciezka), przed,
+                         "istniejacy blok nie powieksza pliku")
+        with vhd.open_image(sciezka) as obraz:
+            self.assertEqual(obraz.read_sector(2), b"N" * SEKTOR)
+            self.assertEqual(obraz.read_sector(1), b"\xaa" * SEKTOR)
+
+    def test_zapis_w_blok_ktorego_nie_bylo(self):
+        sciezka = self.rozszerzalny({0: 0xAA})
+        przed = os.path.getsize(sciezka)
+        with vhd.open_image(sciezka, read_only=False) as obraz:
+            obraz.write_sector(16, b"N" * SEKTOR)       # blok 2, niezajety
+        self.assertEqual(os.path.getsize(sciezka),
+                         przed + SEKTOR + self.BLOK,
+                         "plik rosnie o bitmape i caly blok")
+        with vhd.open_image(sciezka) as obraz:
+            self.assertEqual(obraz.read_sector(16), b"N" * SEKTOR)
+            self.assertEqual(obraz.read_sector(17), bytes(SEKTOR),
+                             "reszta nowego bloku to zera")
+            self.assertEqual(obraz.read_sector(0), b"\xaa" * SEKTOR,
+                             "stary blok nietkniety")
+            self.assertTrue(obraz.footer.checksum_ok)
+
+    def test_kolejne_nowe_bloki(self):
+        sciezka = self.rozszerzalny({})
+        with vhd.open_image(sciezka, read_only=False) as obraz:
+            for lba, bajt in ((0, b"A"), (8, b"B"), (24, b"C")):
+                obraz.write_sector(lba, bajt * SEKTOR)
+        with vhd.open_image(sciezka) as obraz:
+            self.assertEqual(obraz.read_sector(0), b"A" * SEKTOR)
+            self.assertEqual(obraz.read_sector(8), b"B" * SEKTOR)
+            self.assertEqual(obraz.read_sector(24), b"C" * SEKTOR)
+
+    def test_zapis_kilku_sektorow(self):
+        sciezka = self.rozszerzalny({0: 0x00})
+        with vhd.open_image(sciezka, read_only=False) as obraz:
+            obraz.write(1, b"X" * SEKTOR + b"Y" * SEKTOR)
+        with vhd.open_image(sciezka) as obraz:
+            self.assertEqual(obraz.read_sector(1), b"X" * SEKTOR)
+            self.assertEqual(obraz.read_sector(2), b"Y" * SEKTOR)
+
+    def test_zly_rozmiar_sektora_odrzucony(self):
+        with vhd.open_image(self.staly(), read_only=False) as obraz:
+            with self.assertRaises(vhd.VhdError):
+                obraz.write_sector(0, b"za krotkie")
+
+    def test_sektor_poza_dyskiem_odrzucony(self):
+        with vhd.open_image(self.staly(), read_only=False) as obraz:
+            with self.assertRaises(vhd.VhdError):
+                obraz.write_sector(99, b"x" * SEKTOR)
+
+
+
+class ObrazNiepelny(PrzypadekZKatalogiem):
+    """
+    Obraz uciety - na przyklad niedokonczone pobieranie - ma tablice
+    wskazujaca poza koniec pliku. Odczyt znosimy, zapis odmawiamy: trafilby
+    za koniec pliku, rozdmuchal go i zostawil stopke w srodku, zamieniajac
+    obraz niepelny w calkiem zepsuty.
+    """
+
+    def uciety(self) -> str:
+        pomocnik = ObrazRozszerzalny(methodName="test_czyta_z_blokow")
+        pomocnik.katalog = self.katalog
+        pelny = pomocnik.zbuduj({0: 0xAA, 2: 0xBB})
+        with open(pelny, "rb") as fh:
+            tresc = fh.read()
+        stopka_pliku = tresc[-SEKTOR:]
+        sciezka = self.sciezka("uciety.vhd")
+        with open(sciezka, "wb") as fh:
+            fh.write(tresc[:len(tresc) // 2] + stopka_pliku)
+        return sciezka
+
+    def test_odczyt_dziala_i_zglasza_niepelnosc(self):
+        with vhd.open_image(self.uciety()) as obraz:
+            self.assertTrue(obraz.truncated)
+            self.assertEqual(obraz.read_sector(0), b"\xaa" * SEKTOR)
+
+    def test_zapis_odmowiony(self):
+        with self.assertRaises(vhd.VhdError) as blad:
+            vhd.open_image(self.uciety(), read_only=False)
+        self.assertIn("niepelny", str(blad.exception))
+
+    def test_pelny_obraz_nie_jest_uznany_za_uciety(self):
+        pomocnik = ObrazRozszerzalny(methodName="test_czyta_z_blokow")
+        pomocnik.katalog = self.katalog
+        with vhd.open_image(pomocnik.zbuduj({0: 0xAA}),
+                            read_only=False) as obraz:
+            self.assertFalse(obraz.truncated)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -109,9 +109,10 @@ class RawDisk:
     jedno, skad pochodza sektory.
     """
 
-    def __init__(self, path: str):
+    def __init__(self, path: str, read_only: bool = True):
         self.path = os.path.abspath(path)
-        self._plik = open(self.path, "rb")
+        self.read_only = read_only
+        self._plik = open(self.path, "rb" if read_only else "r+b")
         self.size = os.path.getsize(self.path)
 
     @property
@@ -133,8 +134,34 @@ class RawDisk:
     def read(self, lba: int, count: int = 1) -> bytes:
         return b"".join(self.read_sector(lba + i) for i in range(count))
 
+    def write_sector(self, lba: int, dane: bytes) -> None:
+        if self.read_only:
+            raise DiskError("obraz otwarty tylko do odczytu")
+        if len(dane) != SEKTOR:
+            raise DiskError(f"sektor ma {len(dane)} B zamiast {SEKTOR}")
+        if not 0 <= lba < self.sector_count:
+            raise DiskError(f"sektor {lba} poza dyskiem "
+                            f"({self.sector_count} sektorow)")
+        self._plik.seek(lba * SEKTOR)
+        self._plik.write(dane)
+
+    def write(self, lba: int, dane: bytes) -> None:
+        if len(dane) % SEKTOR:
+            raise DiskError("dane nie sa wielokrotnoscia sektora")
+        for numer in range(len(dane) // SEKTOR):
+            self.write_sector(lba + numer,
+                              dane[numer * SEKTOR:(numer + 1) * SEKTOR])
+
+    def flush(self) -> None:
+        if not self.read_only and not self._plik.closed:
+            self._plik.flush()
+            os.fsync(self._plik.fileno())
+
     def close(self) -> None:
         if not self._plik.closed:
+            if not self.read_only:
+                self._plik.flush()
+                os.fsync(self._plik.fileno())
             self._plik.close()
 
     def __enter__(self) -> "RawDisk":
@@ -147,7 +174,7 @@ class RawDisk:
         return f"<RawDisk {os.path.basename(self.path)} {self.size} B>"
 
 
-def open_disk(path: str):
+def open_disk(path: str, read_only: bool = True):
     """
     Otwiera obraz dysku - VHD albo surowy - do odczytu sektorow.
 
@@ -158,12 +185,12 @@ def open_disk(path: str):
         raise DiskError(f"nie ma takiego pliku: {path}")
     if vhd.looks_like_vhd(path):
         try:
-            return vhd.open_image(path)
+            return vhd.open_image(path, read_only=read_only)
         except vhd.VhdError as exc:
             raise DiskError(str(exc)) from exc
     if os.path.getsize(path) < SEKTOR:
         raise DiskError("plik jest za krotki na obraz dysku")
-    return RawDisk(path)
+    return RawDisk(path, read_only=read_only)
 
 
 def _wpis(dane: bytes, numer: int) -> tuple[int, int, int, bool]:
