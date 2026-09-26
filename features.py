@@ -58,3 +58,13 @@ except ImportError:
     fat16 = None
     wybierz_partycje = None
     DISKS_AVAILABLE = False
+
+# Zgrywanie plyt CD i DVD: modul i jego okno.
+try:
+    import optical
+    from dialogs_optical import OpticalDialog
+    OPTICAL_AVAILABLE = True
+except ImportError:
+    optical = None
+    OpticalDialog = None
+    OPTICAL_AVAILABLE = False

@@ -23,6 +23,7 @@ behaves identically on Linux and Windows — and needs no `sudo`.
 | `gwbridge.py` | Greaseweazle bridge: runs `gw` and parses its output |
 | `vhd.py` | reading VHD disk images |
 | `partitions.py` | partition table of disk images |
+| `optical.py` | reading CD and DVD discs into `.iso` files |
 | `fat16.py` | FAT16/FAT12 engine for hard disks |
 | `dialogs_disk.py` | partition chooser window |
 | `dialogs_gw.py` | Greaseweazle window (with `gwbridge.py`) |
@@ -39,6 +40,8 @@ behaves identically on Linux and Windows — and needs no `sudo`.
 | `jazwiec.ico` | Windows icon, for PyInstaller |
 | `jazwiec-panel.png` | artwork below the create-disk button |
 | `jazwiec-gw.png` | report background in the Greaseweazle window |
+| `jazwiec-cd.png` | report background in the disc window |
+| `dialogs_optical.py` | disc reading window |
 
 All `.py` files must sit in the same directory. `diskset.py` is optional —
 without it only the disk-set wizard disappears.
@@ -871,6 +874,37 @@ python3 vhd.py info disk.vhd
 python3 partitions.py disk.vhd
 ```
 
+## CD and DVD discs
+
+Reading a data disc into an `.iso` file. From the command line for now; it
+will appear in the window in a later step. The program does not burn discs —
+system tools do that already.
+
+```bash
+python3 optical.py list
+python3 optical.py probe /dev/sr0
+python3 optical.py read /dev/sr0 disc.iso --retries 5
+```
+
+The real length of the data comes from the ISO 9660 volume descriptor in
+sector 16 of the disc — the size reported by the drive is often inflated by
+run-out sectors and silence at the end.
+
+Unreadable sectors do not stop the job. The program reads in chunks, and
+when a chunk fails it drops to single sectors and retries. Sectors that
+cannot be read are not skipped — they are filled with zeros and listed in
+the report, so a disc scratched in a few places still yields all the rest.
+
+**Audio-only discs are refused outright.** Music does not live in data
+sectors, so there is no `.iso` to make — the program says so instead of
+grinding for hours. Such discs need a ripper that writes WAV or FLAC.
+
+**What an `.iso` cannot hold.** CD-Audio tracks live outside the filesystem,
+so a game with music on the disc will end up with data and no music. The
+program recognises such discs and says so before reading, rather than
+quietly writing an incomplete image. The same goes for multi-session discs
+and media without an ISO 9660 volume descriptor.
+
 ## Copying directories
 
 **Files → Add folder with subfolders** moves a whole structure onto the
@@ -901,6 +935,12 @@ directory structure stays intact.
 
 Symbolic links are skipped: they have no counterpart on a floppy, and
 following them would risk looping.
+
+In the program: **Drive → CD and DVD discs**. The window lists the
+drives it found, describes the disc together with any warnings, shows a
+progress bar with a count of unreadable sectors, and a report that can be
+saved to a file. The number of retries per sector is set in the window — on
+a scratched disc more retries gives a better chance but takes longer.
 
 From the command line:
 

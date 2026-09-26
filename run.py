@@ -32,6 +32,7 @@ MODULY = [
     "test_vhd",
     "test_partitions",
     "test_fat16",
+    "test_optical",
     "test_interfejs",
 ]
 

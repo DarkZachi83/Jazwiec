@@ -20,7 +20,8 @@ from tkinter import ttk
 
 from fat12 import FLOPPY_FORMATS
 from features import (
-    DISKS_AVAILABLE, DRIVES_AVAILABLE, GW_AVAILABLE, PACZKA_AVAILABLE,
+    DISKS_AVAILABLE, DRIVES_AVAILABLE, GW_AVAILABLE, OPTICAL_AVAILABLE,
+    PACZKA_AVAILABLE,
 )
 from languages import LANGUAGE_NAMES
 from styles import (
@@ -99,7 +100,7 @@ class PanelsMixin:
 
         # Menu napedow pojawia sie, gdy dostepna jest ktorakolwiek droga do
         # fizycznej dyskietki - stacja USB albo Greaseweazle.
-        if DRIVES_AVAILABLE or GW_AVAILABLE:
+        if DRIVES_AVAILABLE or GW_AVAILABLE or OPTICAL_AVAILABLE:
             drive = tk.Menu(bar, tearoff=0, **opts)
             if DRIVES_AVAILABLE:
                 drive.add_command(label=self.t("menu_drive_panel"),
@@ -107,6 +108,9 @@ class PanelsMixin:
             if GW_AVAILABLE:
                 drive.add_command(label=self.t("menu_gw"),
                                   command=self.open_gw_panel)
+            if OPTICAL_AVAILABLE:
+                drive.add_command(label=self.t("menu_optical"),
+                                  command=self.open_optical_panel)
             bar.add_cascade(label=self.t("menu_drive"), menu=drive)
 
         langs = tk.Menu(bar, tearoff=0, **opts)

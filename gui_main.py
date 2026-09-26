@@ -55,8 +55,9 @@ except ImportError:
     sys.exit(translate(DEFAULT_LANGUAGE, "error_no_engine"))
 
 from features import (
-    DRIVES_AVAILABLE, GW_AVAILABLE, PACZKA_AVAILABLE, DriveDialog,
-    GwDialog, KompletDialog, fat16, usbfloppy, wybierz_partycje,
+    DRIVES_AVAILABLE, GW_AVAILABLE, OPTICAL_AVAILABLE, PACZKA_AVAILABLE,
+    DriveDialog, GwDialog, KompletDialog, OpticalDialog, fat16, usbfloppy,
+    wybierz_partycje,
 )
 from styles import StyleMixin
 from ui_panels import PanelsMixin
@@ -858,6 +859,17 @@ class RetroZachar(StyleMixin, PanelsMixin, tk.Tk):
             existing.focus_set()
             return
         self._gw_window = GwDialog(self)
+
+    def open_optical_panel(self) -> None:
+        """Okno plyt - jedno naraz, jak pozostale okna sprzetowe."""
+        if not OPTICAL_AVAILABLE:
+            return
+        existing = getattr(self, "_optical_window", None)
+        if existing is not None and existing.winfo_exists():
+            existing.lift()
+            existing.focus_set()
+            return
+        self._optical_window = OpticalDialog(self)
 
     def open_floppy_preview(self, image, drive) -> None:
         """Pokazuje w glownym panelu system plikow fizycznej dyskietki."""

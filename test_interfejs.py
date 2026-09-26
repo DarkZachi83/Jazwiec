@@ -1168,7 +1168,7 @@ class RaportBezObrazu(CzystyStart):
 class PodzialRaportuNaBloki(unittest.TestCase):
 
     def test_raport_z_mapa(self):
-        import dialogs_gw
+        import styles as dialogs_gw
         linie = ["A", "", "Cyl-> 0", "H. S: 0", "0. 0: .", "1. 0: X",
                  "", "Rozpoznanie:"]
         bloki = dialogs_gw._podziel_na_bloki(linie)
@@ -1177,7 +1177,7 @@ class PodzialRaportuNaBloki(unittest.TestCase):
                                        "1. 0: X"])
 
     def test_raport_bez_mapy(self):
-        import dialogs_gw
+        import styles as dialogs_gw
         bloki = dialogs_gw._podziel_na_bloki(["A", "B"])
         self.assertEqual(bloki, [(["A", "B"], False)])
 
@@ -1512,6 +1512,156 @@ class WzorcePlikow(unittest.TestCase):
         self.assertTrue(any(fnmatch.fnmatchcase("210MB.VHD", w)
                             for w in wzorce),
                         "obraz z 86Boxa ma byc widoczny na liscie")
+
+
+
+@unittest.skipUnless(_okno_dostepne(), "brak serwera graficznego")
+class OknoPlyt(PrzypadekZKatalogiem):
+    """
+    Okno zgrywania plyt. Napedu optycznego w zestawie testow nie ma, wiec
+    podstawiamy plik z obrazem plyty - liczy sie to, co okno z nim zrobi.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import gui_main
+        import optical
+        from test_optical import opis_wolumenu
+        self.optical = optical
+        self.app = gui_main.RetroZachar()
+        self.addCleanup(self.app.quit_app)
+        self._przejmij_komunikaty()
+
+        self.plyta = self.sciezka("sr0")
+        obraz = bytearray(b"D" * 300 * optical.SEKTOR)
+        obraz[16 * optical.SEKTOR:17 * optical.SEKTOR] = opis_wolumenu(
+            300, "WC3_CD4")
+        with open(self.plyta, "wb") as fh:
+            fh.write(bytes(obraz))
+
+        self.addCleanup(setattr, optical, "list_drives", optical.list_drives)
+        optical.list_drives = lambda: [
+            optical.OpticalDrive(self.plyta, "Slimtype eBAU108")]
+        self.sciezki = (1, 0)
+        prawdziwe = optical._sciezki_plyty
+        self.addCleanup(setattr, optical, "_sciezki_plyty", prawdziwe)
+
+        def spis(uchwyt, info):
+            info.data_tracks, info.audio_tracks = self.sciezki
+
+        optical._sciezki_plyty = spis
+
+    def _przejmij_komunikaty(self):
+        import tkinter.messagebox as mb
+        for nazwa, odpowiedz in (("showerror", None), ("showwarning", None),
+                                 ("showinfo", None), ("askyesno", False)):
+            self.addCleanup(setattr, mb, nazwa, getattr(mb, nazwa))
+            setattr(mb, nazwa, lambda *a, _w=odpowiedz, **k: _w)
+
+    def czekaj(self, warunek, sekundy=20.0):
+        import time
+        koniec = time.time() + sekundy
+        while time.time() < koniec:
+            self.app.update()
+            if warunek():
+                return True
+            time.sleep(0.02)
+        return False
+
+    def otworz(self):
+        self.app.open_optical_panel()
+        okno = self.app._optical_window
+        self.addCleanup(okno.destroy)
+        self.app.update()
+        return okno
+
+    def test_naped_na_liscie(self):
+        okno = self.otworz()
+        self.assertEqual(list(okno.drive_buttons), [self.plyta])
+        self.assertEqual(okno.btn_check.cget("state"), "normal")
+        self.assertEqual(okno.btn_read.cget("state"), "disabled",
+                         "przed sprawdzeniem plyty nie ma czego zgrywac")
+
+    def test_sprawdzenie_plyty(self):
+        okno = self.otworz()
+        okno.sprawdz_plyte()
+        self.assertTrue(self.czekaj(lambda: okno.info is not None))
+        self.app.update()
+        self.assertIn("WC3_CD4", okno.lbl_disc.cget("text"))
+        self.assertEqual(okno.btn_read.cget("state"), "normal")
+
+    def test_zgrywanie(self):
+        import tkinter.filedialog as fd
+        cel = self.sciezka("plyta.iso")
+        self.addCleanup(setattr, fd, "asksaveasfilename",
+                        fd.asksaveasfilename)
+        fd.asksaveasfilename = lambda **k: cel
+
+        okno = self.otworz()
+        okno.sprawdz_plyte()
+        self.assertTrue(self.czekaj(lambda: okno.info is not None))
+        okno.zgraj()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.app.update()
+        self.assertTrue(okno.raport.complete)
+        self.assertEqual(os.path.getsize(cel), 300 * self.optical.SEKTOR)
+        with open(self.plyta, "rb") as a, open(cel, "rb") as b:
+            self.assertEqual(a.read(), b.read())
+        self.assertIn("Rozpoznanie", okno.widok.tekst())
+        self.assertEqual(okno.btn_save.cget("state"), "normal")
+
+    def test_plyta_audio_nie_da_sie_zgrac(self):
+        """
+        Plyta z sama muzyka: okno ma powiedziec dlaczego i nie pozwolic
+        zaczac, zamiast mielic kilka minut i dac bezwartosciowy plik.
+        """
+        self.sciezki = (0, 11)
+        okno = self.otworz()
+        okno.sprawdz_plyte()
+        self.assertTrue(self.czekaj(lambda: okno.info is not None))
+        self.app.update()
+        self.assertTrue(okno.info.audio_only)
+        self.assertEqual(okno.btn_read.cget("state"), "disabled")
+        self.assertIn("muzyka", okno.lbl_notes.cget("text"))
+
+    def test_przerwanie(self):
+        import tkinter.filedialog as fd
+        self.addCleanup(setattr, fd, "asksaveasfilename",
+                        fd.asksaveasfilename)
+        fd.asksaveasfilename = lambda **k: self.sciezka("p.iso")
+        okno = self.otworz()
+        okno.sprawdz_plyte()
+        self.assertTrue(self.czekaj(lambda: okno.info is not None))
+        prawdziwy = self.optical._czytaj
+        self.addCleanup(setattr, self.optical, "_czytaj", prawdziwy)
+
+        def wolno(uchwyt, od, ile):
+            # Plyta w tescie ma dwie porcje i bez spowolnienia odczyt
+            # konczy sie, zanim test zdazy przerwac - test bylby wtedy
+            # nie tyle laskawy, co losowy.
+            import time
+            time.sleep(0.3)
+            return prawdziwy(uchwyt, od, ile)
+
+        self.optical._czytaj = wolno
+        okno.zgraj()
+        self.assertTrue(self.czekaj(
+            lambda: okno._biezacy is not None and okno._biezacy.done > 0),
+            "zgrywanie ma ruszyc, zanim je przerwiemy")
+        okno.przerwij()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.assertTrue(okno.raport.cancelled)
+        self.assertFalse(okno.raport.complete)
+
+    def test_wybor_napedu_zapamietany(self):
+        okno = self.otworz()
+        okno.sprawdz_plyte()
+        self.assertTrue(self.czekaj(lambda: okno.info is not None))
+        self.assertEqual(self.app.config_data["cddrive"], self.plyta)
+        okno.var_retries.set("7")
+        okno.sprawdz_plyte()
+        self.assertTrue(self.czekaj(lambda: okno.info is not None))
+        self.assertEqual(self.app.config_data["cdretries"], 7)
 
 
 if __name__ == "__main__":

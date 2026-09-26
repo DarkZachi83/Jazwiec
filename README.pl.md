@@ -23,6 +23,7 @@ na Linuksie i na Windowsie — i nie potrzebuje `sudo`.
 | `gwbridge.py` | most do Greaseweazle: uruchamia `gw` i rozbiera jego wyjście |
 | `vhd.py` | odczyt obrazów dysków VHD |
 | `partitions.py` | tablica partycji obrazów dysków |
+| `optical.py` | zgrywanie płyt CD i DVD do pliku `.iso` |
 | `fat16.py` | silnik FAT16/FAT12 dla dysków twardych |
 | `dialogs_disk.py` | okno wyboru partycji |
 | `dialogs_gw.py` | okno Greaseweazle (z `gwbridge.py`) |
@@ -39,6 +40,8 @@ na Linuksie i na Windowsie — i nie potrzebuje `sudo`.
 | `jazwiec.ico` | ikona dla Windows, do PyInstallera |
 | `jazwiec-panel.png` | grafika pod przyciskiem tworzenia dyskietki |
 | `jazwiec-gw.png` | tło raportu w oknie Greaseweazle |
+| `jazwiec-cd.png` | tło raportu w oknie płyt |
+| `dialogs_optical.py` | okno zgrywania płyt |
 
 Wszystkie pliki `.py` muszą leżeć w tym samym katalogu.
 `diskset.py` jest opcjonalny — bez niego znika tylko kreator kompletu.
@@ -859,6 +862,37 @@ python3 vhd.py info dysk.vhd
 python3 partitions.py dysk.vhd
 ```
 
+## Płyty CD i DVD
+
+Zgrywanie płyty z danymi do pliku `.iso`. Na razie z wiersza poleceń;
+w oknie pojawi się w kolejnym kroku. Wypalania program nie robi — od tego
+są narzędzia systemowe.
+
+```bash
+python3 optical.py list
+python3 optical.py probe /dev/sr0
+python3 optical.py read /dev/sr0 plyta.iso --retries 5
+```
+
+Prawdziwą długość danych bierze z opisu wolumenu ISO 9660 w szesnastym
+sektorze płyty — rozmiar podawany przez napęd bywa zawyżony o sektory
+wyrównujące i ciszę na końcu.
+
+Uszkodzone sektory nie przerywają pracy. Program czyta porcjami, a gdy
+porcja zawiedzie, schodzi do pojedynczych sektorów i ponawia odczyt.
+Nieczytelnych nie pomija — wypełnia zerami i wypisuje w raporcie, więc
+z płyty porysowanej w kilku miejscach odzyskujesz całą resztę.
+
+**Płyty z samą muzyką odrzuca od razu.** Muzyka nie leży w sektorach
+z danymi, więc obrazu `.iso` z niej nie będzie — program mówi to zamiast
+próbować godzinami. Do takich płyt służą programy zgrywające do WAV lub FLAC.
+
+**Czego `.iso` nie pomieści.** Ścieżki CD-Audio leżą poza systemem plików,
+więc gra z muzyką na płycie dostanie w obrazie dane bez muzyki. Program
+rozpoznaje takie płyty i mówi o tym przed zgrywaniem, zamiast po cichu
+zapisać obraz niepełny. Podobnie przy płytach wielosesyjnych i przy
+nośnikach bez opisu wolumenu ISO 9660.
+
 ## Kopiowanie katalogów
 
 **Pliki → Dodaj katalog z podkatalogami** przenosi na obraz całą strukturę:
@@ -889,6 +923,12 @@ Struktura katalogów pozostaje nienaruszona.
 
 Dowiązania symboliczne są pomijane: na dyskietce nie mają odpowiednika,
 a podążanie za nimi groziłoby zapętleniem.
+
+W programie: **Napęd → Płyty CD i DVD**. Okno pokazuje wykryte napędy,
+opis płyty razem z ostrzeżeniami, pasek postępu z licznikiem nieczytelnych
+sektorów i raport, który można zapisać do pliku. Liczbę prób na sektor
+ustawia się w oknie — przy płycie porysowanej większa daje lepszą szansę,
+ale wydłuża zgrywanie.
 
 Z wiersza poleceń:
 

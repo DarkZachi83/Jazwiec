@@ -110,6 +110,12 @@ install -m 644 "$SOURCE_DIR/main.py" "$SOURCE_DIR/gui_main.py" \
                "$SOURCE_DIR/languages.py" "$SOURCE_DIR/dostext.py" \
                "$SOURCE_DIR/engines.py" "$LIB_DIR/"
 
+# Zgrywanie plyt CD i DVD do pliku .iso.
+if [ -f "$SOURCE_DIR/optical.py" ]; then
+    install -m 644 "$SOURCE_DIR/optical.py" \
+                   "$SOURCE_DIR/dialogs_optical.py" "$LIB_DIR/"
+fi
+
 # Obrazy dyskow twardych: silnik FAT16 i okno wyboru partycji.
 if [ -f "$SOURCE_DIR/fat16.py" ]; then
     install -m 644 "$SOURCE_DIR/fat16.py" "$SOURCE_DIR/partitions.py" \
@@ -157,7 +163,7 @@ do
 done
 
 # Ikona jest tez potrzebna w katalogu programu - stamtad bierze ja okno.
-for PLIK in jazwiec.png jazwiec-64.png jazwiec-32.png jazwiec-panel.png jazwiec-gw.png; do
+for PLIK in jazwiec.png jazwiec-64.png jazwiec-32.png jazwiec-panel.png jazwiec-gw.png jazwiec-cd.png; do
     [ -f "$SOURCE_DIR/$PLIK" ] && install -m 644 "$SOURCE_DIR/$PLIK" "$LIB_DIR/"
 done
 

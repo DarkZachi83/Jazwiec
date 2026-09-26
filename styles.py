@@ -10,6 +10,7 @@ albo wersji nie wymaga szukania po calym interfejsie.
 
 from __future__ import annotations
 
+import re
 import tkinter as tk
 import tkinter.font as tkfont
 from tkinter import ttk
@@ -17,7 +18,7 @@ from tkinter import ttk
 from system import _znajdz_ikone
 
 APP_NAME = "RetroZachar - FFD Disk Maker - Jazwiec"
-APP_VERSION = "1.10"
+APP_VERSION = "1.13.1"
 
 
 # --------------------------------------------------------------------------
@@ -158,6 +159,178 @@ class ProgressBar(tk.Canvas):
             0, 0, max(2, int(szerokosc * self._ulamek)), wysokosc,
             fill=self._kolor, width=0,
         )
+
+_WIERSZ_MAPY = re.compile(r"^(?:\d\.\s?\d+|H\d): +")
+
+
+def _podziel_na_bloki(linie: list[str]) -> list[tuple[list[str], bool]]:
+    """
+    Dzieli raport na bloki: tekst przed mapa, mapa sektorow, tekst po niej.
+
+    Mapa zaczyna sie od podzialki "Cyl->" i konczy na ostatnim wierszu
+    postaci "1.17: ....". Raport bez mapy to jeden blok.
+    """
+    if not any(l.startswith("Cyl-> ") for l in linie):
+        return [(list(linie), False)]
+    poczatek = next(i for i, l in enumerate(linie) if l.startswith("Cyl-> "))
+    koniec = poczatek + 2
+    while koniec < len(linie) and _WIERSZ_MAPY.match(linie[koniec]):
+        koniec += 1
+    return [(linie[:poczatek], False), (linie[poczatek:koniec], True),
+            (linie[koniec:], False)]
+
+
+class ReportView(tk.Canvas):
+    """
+    Raport na tle obrazu.
+
+    Widzet tekstowy Tk nie potrafi miec obrazu w tle, wiec raport rysujemy
+    na plotnie: obraz na spodzie, tekst na wierzchu. Obraz jest juz
+    przyciemniony i ma wygaszone brzegi - Tk nie umie mieszac przezroczystosci
+    w locie, a nie chcemy zaleznosci od biblioteki graficznej.
+
+    Tlo stoi w miejscu, przewija sie tylko tekst. Kazda linijka ma pod soba
+    czarny cien przesuniety o piksel - na jasnych fragmentach obrazu sam
+    jasny tekst tracil kontrast.
+
+    Zaznaczania tekstu mysza tu nie ma; raport zapisuje sie do pliku.
+    """
+
+    MARGINES = 8
+    # Obraz ma u dolu wtopiony tytul. Pod tekstem zostawiamy tyle wolnego
+    # miejsca do przewijania, zeby przy przewinieciu do konca ostatnia
+    # linia raportu - rozpoznanie, najwazniejsza w calosci - zatrzymala sie
+    # nad tytulem, a nie na nim.
+    ZAPAS_POD_TYTULEM = 44
+
+    # Najszersza linia raportu to mapa sektorow: szesc znakow opisu i po
+    # jednym znaku na kazdy z 80 cylindrow. Pole musi ja miescic w calosci,
+    # bo zawinieta mapa traci uklad kolumn.
+    ZNAKOW_W_LINII = 88
+
+    def __init__(self, parent: tk.Misc, font, obraz: str | None,
+                 height: int = 270):
+        super().__init__(parent, bg=SCREEN, height=height, bd=0,
+                         highlightthickness=1, highlightbackground=FRAME)
+        self.font = font
+        self.configure(width=self.szerokosc_linii() + 2 * self.MARGINES)
+        self._tekst = ""
+        self._elementy: list[int] = []
+        self._tlo = None
+        self._tlo_id = None
+        if obraz:
+            try:
+                self._tlo = tk.PhotoImage(file=obraz, master=self)
+            except tk.TclError:
+                self._tlo = None
+        if self._tlo is not None:
+            self._tlo_id = self.create_image(0, 0, image=self._tlo,
+                                             anchor="center")
+        self.bind("<Configure>", lambda e: self._przelicz(), add="+")
+        # kolko myszy: Linux zglasza przyciski 4 i 5, Windows zdarzenie z delta
+        self.bind("<Button-4>", lambda e: self.yview_scroll(-3, "units"))
+        self.bind("<Button-5>", lambda e: self.yview_scroll(3, "units"))
+        self.bind("<MouseWheel>", lambda e: self.yview_scroll(
+            -1 if e.delta > 0 else 1, "units"))
+
+    def szerokosc_linii(self, znakow: int | None = None) -> int:
+        """Szerokosc w pikselach linii o danej liczbie znakow tej czcionki."""
+        import tkinter.font as tkfont
+        return tkfont.Font(root=self, font=self.font).measure(
+            "0" * (znakow or self.ZNAKOW_W_LINII))
+
+    # -- przewijanie z nieruchomym tlem ------------------------------------
+
+    def yview(self, *argumenty):
+        wynik = super().yview(*argumenty)
+        self._tlo_na_miejsce()
+        return wynik
+
+    def yview_scroll(self, ile, co):
+        super().yview_scroll(ile, co)
+        self._tlo_na_miejsce()
+
+    def yview_moveto(self, ulamek):
+        super().yview_moveto(ulamek)
+        self._tlo_na_miejsce()
+
+    def _tlo_na_miejsce(self) -> None:
+        if self._tlo_id is not None:
+            self.coords(self._tlo_id, self.winfo_width() / 2,
+                        self.canvasy(0) + self.winfo_height() / 2)
+            self.tag_lower(self._tlo_id)
+
+    # -- tresc -------------------------------------------------------------
+
+    def tekst(self) -> str:
+        return self._tekst
+
+    def pokaz(self, tekst: str) -> None:
+        """
+        Rysuje raport: tekst z cieniem, a mape sektorow jako osobny blok.
+
+        Mapa nie moze sie zawijac i musi miec znaki dokladnie w kolumnach,
+        bo na jej nieczytelne sektory nakladamy czerwone X. Gdyby byla
+        czescia jednego duzego napisu, zawinieta wyzej dluga sciezka do
+        obrazu przesunelaby ja o linie i czerwone znaki trafilyby obok.
+        """
+        for element in self._elementy:
+            self.delete(element)
+        self._elementy.clear()
+        self._bloki: list[tuple[int, bool]] = []    # (element, czy mapa)
+        self._tekst = tekst
+        if tekst:
+            import tkinter.font as tkfont
+            czcionka = tkfont.Font(root=self, font=self.font)
+            wiersz = czcionka.metrics("linespace")
+            znak = czcionka.measure("0")
+            szer = max(100, self.winfo_width() - 2 * self.MARGINES)
+            y = self.MARGINES
+            for linie, mapa in _podziel_na_bloki(tekst.splitlines()):
+                puste = 0
+                while linie and not linie[0].strip():
+                    linie.pop(0)
+                    puste += 1
+                if not linie:
+                    continue
+                y += puste * wiersz
+                tresc = "\n".join(linie)
+                for dx, kolor in ((1, SCREEN), (0, TEXT)):
+                    element = self.create_text(
+                        self.MARGINES + dx, y + dx, text=tresc, anchor="nw",
+                        fill=kolor, font=self.font,
+                        width=0 if mapa else szer)
+                    self._elementy.append(element)
+                    self._bloki.append((element, mapa))
+                if mapa:
+                    for nr, linia in enumerate(linie):
+                        for kolumna, litera in enumerate(linia):
+                            if litera == "X" and _WIERSZ_MAPY.match(linia):
+                                self._elementy.append(self.create_text(
+                                    self.MARGINES + kolumna * znak,
+                                    y + nr * wiersz, text="X", anchor="nw",
+                                    fill=ALERT, font=self.font))
+                y = self.bbox(self._elementy[-1])[3]
+                # ostatni element bloku mapy to czerwony X - granice bloku
+                # wyznacza jednak caly tekst mapy
+                y = max(y, self.bbox(self._bloki[-1][0])[3])
+        super().yview_moveto(0)
+        self._przelicz()
+
+    def _przelicz(self) -> None:
+        szer = max(100, self.winfo_width() - 2 * self.MARGINES)
+        for element, mapa in getattr(self, "_bloki", []):
+            if not mapa:
+                self.itemconfigure(element, width=szer)
+        wysokosc = self.winfo_height()
+        if self._elementy:
+            ramka = self.bbox(*self._elementy)
+            zapas = self.ZAPAS_POD_TYTULEM if self._tlo is not None \
+                else self.MARGINES
+            wysokosc = max(wysokosc, ramka[3] + zapas)
+        self.configure(scrollregion=(0, 0, self.winfo_width(), wysokosc))
+        self._tlo_na_miejsce()
+
 
 class StyleMixin:
     """

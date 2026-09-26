@@ -2,6 +2,73 @@
 
 Numery wersji odpowiadają wartości `APP_VERSION` w `styles.py`.
 
+## 1.13.1
+
+- Raport w oknie płyt ma własne tło z borsukiem, tak jak okno Greaseweazle.
+- Pole raportu z tłem przeniesione do `styles.py` — dotąd mieszkało w oknie
+  Greaseweazle, a okno płyt musiałoby je powielić albo importować z modułu,
+  który wymaga Greaseweazle. Teraz oba korzystają z jednego kodu.
+
+## 1.13
+
+- **Okno płyt CD i DVD** w menu Napęd, pod Greaseweazle: wybór napędu,
+  opis płyty z ostrzeżeniami, liczba prób na sektor, pasek postępu
+  z licznikiem nieczytelnych sektorów, przerwanie i raport na dole.
+- Płytę z samą muzyką okno rozpoznaje i nie pozwala zacząć zgrywania,
+  pokazując powód na czerwono.
+- Raport ze zgrywania jest wspólny dla okna i wiersza poleceń: zawiera
+  napęd, etykietę płyty, liczbę sektorów, prędkość i listę nieczytelnych
+  miejsc. Można go zapisać do `.txt`.
+
+## 1.12
+
+- **Płyty z samą muzyką są rozpoznawane i odrzucane** z wyjaśnieniem.
+  Muzyka nie leży w sektorach z danymi, więc napęd odmawia czytania jej
+  jak danych: program schodził do pojedynczych sektorów, mielił po pięć
+  prób na każdy i po trzech minutach był na dziewięciu procentach, a plik
+  i tak byłby bezwartościowy. Teraz mówi to od razu i podpowiada, że do
+  płyt audio służą programy zgrywające do WAV albo FLAC.
+  Zgłoszone z prawdziwego napędu.
+- Płyta mieszana — gra z muzyką na ścieżkach CD — nadal się zgrywa;
+  program tylko uprzedza, że muzyki w obrazie nie będzie.
+- Gdy napęd nie odda ani jednego z pierwszych 64 sektorów, zgrywanie
+  kończy się komunikatem zamiast pracować godzinami.
+
+## 1.11.2
+
+- Krótszy odczyt niż zamówiony nie jest już uznawany za udany. Program
+  dopełniał wtedy resztę zerami i szedł dalej — czyli po cichu wstawiał
+  puste miejsca w obraz. Teraz schodzi do pojedynczych sektorów i ustala
+  dokładnie, których brakuje.
+- Przerwanie zgrywania klawiszem kończy się komunikatem, a nie śladem
+  wyjątku. Przerwanie płyty to normalna droga wyjścia, nie awaria.
+- Pasek postępu pokazuje na bieżąco liczbę nieczytelnych sektorów — widać
+  wtedy od razu, czy powolne zgrywanie bierze się ze stanu płyty.
+
+## 1.11.1
+
+- Odczyt spisu treści płyty nie działał: bufor zapytania miał osiem bajtów
+  zamiast dwunastu, a znacznik formatu adresu trafiał pod zły indeks.
+  Sterownik odmawiał, więc płyta wyglądała jak płyta bez ścieżek i
+  **ostrzeżenie o muzyce nigdy by nie padło**. Wykryte na prawdziwym
+  napędzie: w opisie płyty brakowało wiersza o ścieżkach.
+- Porcja odczytu zwiększona z 64 do 256 sektorów, z możliwością zmiany
+  przez `--chunk`. Na porysowanych płytach mniejsza bywa lepsza, bo po
+  niepowodzeniu program schodzi do pojedynczych sektorów.
+
+## 1.11
+
+- Nowy moduł `optical.py`: zgrywanie płyt CD i DVD do pliku `.iso`,
+  na razie z wiersza poleceń. Wykrywa napędy, rozpoznaje płytę po opisie
+  wolumenu ISO 9660 i bierze z niego prawdziwą liczbę bloków — rozmiar
+  urządzenia bywa zawyżony o sektory wyrównujące.
+- Uszkodzone sektory nie przerywają pracy: program schodzi z porcji do
+  pojedynczych sektorów, ponawia odczyt, a nieczytelne wypełnia zerami
+  i wypisuje w raporcie. Z porysowanej płyty odzyskuje całą resztę.
+- Przed zgrywaniem ostrzega, gdy płyta ma ścieżki CD-Audio: nie wejdą one
+  do obrazu `.iso`, więc gra dostałaby dane bez muzyki. Mówi też, gdy nie
+  widzi opisu wolumenu ISO 9660.
+
 ## 1.10
 
 - Okno postępu przy kopiowaniu wielu plików i całych katalogów, z licznikiem,
