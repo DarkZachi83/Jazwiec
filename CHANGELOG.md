@@ -2,6 +2,78 @@
 
 Numery wersji odpowiadają wartości `APP_VERSION` w `styles.py`.
 
+## 1.13.8
+
+- **Spis treści płyty pod Windows: bufor był o osiem bajtów za mały.**
+  Windows wymaga miejsca na pełne sto wpisów, a program dawał je na
+  dziewięćdziesiąt dziewięć i dostawał kod 122 („za mały bufor"). Objaw
+  wyglądał identycznie jak płyta bez ścieżek, co kosztowało kilka błędnych
+  diagnoz. Uprawnienia administratora nie były potrzebne — pytanie
+  o rozmiar działało na tym samym uchwycie.
+- Kody błędów systemowych są tłumaczone na słowa: „kod błędu 122 (za mały
+  bufor odpowiedzi)" zamiast samej liczby.
+
+## 1.13.7
+
+- Polecenie `optical.py diag URZĄDZENIE` pokazuje krok po kroku, co
+  odpowiada system: które otwarcie napędu się udaje, które pytanie do
+  sterownika przechodzi, ile bajtów zwraca i jak wygląda początek
+  odpowiedzi. Powstało, bo pod Windows spis treści zawodzi, a po kolejnych
+  poprawkach zmienia się tylko objaw.
+- Usunięta druga, starsza funkcja diagnostyczna — zostały dwie naraz.
+
+## 1.13.6
+
+- Szukanie plików graficznych obejmuje katalog aplikacji spakowanej przez
+  PyInstaller (`sys._MEIPASS`) oraz katalog pliku uruchamianego. Dotąd
+  działało to przy budowie jednoplikowej przypadkiem, a przy katalogowej
+  wcale — program startował bez ikon i bez tła raportów.
+
+## 1.13.5
+
+- Spis treści płyty pod Windows kończył się odmową dostępu (kod 5).
+  Przyczyna: pytanie o rozmiar działa na uchwycie otwartym bez żadnego
+  dostępu, a pytanie o spis treści wymaga prawa odczytu danych — program
+  brał pierwszy otwarty uchwyt i na nim próbował obu rzeczy. Teraz każde
+  pytanie dostaje uchwyt z właściwym poziomem, a przy odmowie próbuje
+  drugiego.
+- `ctypes.get_last_error` istnieje tylko pod Windows; sięganie po nie
+  wprost wywracało program na innych systemach.
+
+## 1.13.4
+
+- Pod Windows program otwiera napęd najpierw bez żądania dostępu do danych.
+  Tak otwarty uchwyt wystarcza do wypytywania sterownika i nie wymaga
+  podniesionych uprawnień — podejrzenie, że to one blokowały odczyt spisu
+  treści.
+- Gdy spis treści się nie uda, uwaga zawiera kod błędu systemowego.
+  Bez niego nie da się odróżnić odmowy systemu od płyty bez ścieżek.
+- Nowe polecenie `python3 optical.py toc /dev/sr0` pokazuje surową
+  odpowiedź sterownika — do diagnozy takich przypadków.
+
+## 1.13.3
+
+- Spis treści płyty pod Windows nie działał, choć zgrywanie tak: uchwyt do
+  urządzenia jest tam liczbą 64-bitową, a bez wyraźnej deklaracji typów
+  Python obcinał go do 32 bitów. Sterownik dostawał śmieć i odmawiał, więc
+  płyta wyglądała jak płyta bez ścieżek — a zabezpieczenie przed zgrywaniem
+  płyt z samą muzyką nie miało na czym działać.
+- Gdy spisu treści nie da się odczytać, program mówi to wprost. Milczenie
+  sugerowało, że muzyki na płycie nie ma.
+
+## 1.13.2
+
+- **Zgrywanie płyt pod Windows.** Rozmiaru nośnika nie da się tam ustalić
+  przesunięciem na koniec urządzenia — program pytał o to systemu w sposób,
+  który pod Windows zwraca zero, więc nie wiedział, ile ma zgrywać i nie
+  zgrywał nic. Teraz pyta sterownik wprost, a gdy ten milczy, bierze liczbę
+  bloków z opisu wolumenu samej płyty.
+- Spis treści płyty pod Windows czytany własną drogą: tam pole kontrolne
+  siedzi w młodszych czterech bitach, odwrotnie niż pod Linuksem. Wpis
+  zamykający płytę nie jest liczony jako ścieżka.
+- Napędy pokazują się jako litera dysku, a nie jako ścieżka `\\.\D:`.
+- Zgłoszone z prawdziwego Windowsa po zbudowaniu `.exe`.
+
 ## 1.13.1
 
 - Raport w oknie płyt ma własne tło z borsukiem, tak jak okno Greaseweazle.

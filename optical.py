@@ -47,6 +47,8 @@ __all__ = [
     "opis_plyty",
     "opis_raportu",
     "sciezka_z_danymi",
+    "sciezki_z_toc_windows",
+    "opis_bledu",
     "wpis_toc",
     "SEKTOR",
 ]
@@ -73,6 +75,21 @@ CDS_NO_DISC, CDS_TRAY_OPEN, CDS_DRIVE_NOT_READY, CDS_DISC_OK = 1, 2, 3, 4
 CDS_AUDIO, CDS_DATA_1, CDS_DATA_2 = 100, 101, 102
 CDS_XA_2_1, CDS_XA_2_2, CDS_MIXED = 103, 104, 105
 CDROM_LBA = 0x01              # adresowanie w sektorach logicznych
+
+# Windows: polecenia sterownika. Rozmiaru nosnika nie da sie tam ustalic
+# przesunieciem na koniec pliku - trzeba zapytac sterownik wprost.
+IOCTL_DISK_GET_LENGTH_INFO = 0x0007405C
+IOCTL_STORAGE_CHECK_VERIFY2 = 0x002D0800
+IOCTL_CDROM_READ_TOC = 0x00024000
+# Windows wymaga miejsca na pelne sto wpisow spisu tresci. Przy dziewiecdziesieciu
+# dziewieciu odpowiada kodem 122, czyli "bufor za maly" - co latwo wziac za
+# plyte bez sciezek, bo objaw jest taki sam.
+MAKS_SCIEZEK_TOC = 100
+ROZMIAR_TOC = 4 + MAKS_SCIEZEK_TOC * 8
+GENERIC_READ = 0x80000000
+FILE_SHARE_READ = 1
+FILE_SHARE_WRITE = 2
+OPEN_EXISTING = 3
 ROZMIAR_WPISU_TOC = 12        # struktura wpisu spisu tresci, z wyrownaniem
 
 
@@ -191,14 +208,186 @@ def _windows_drives() -> list[OpticalDrive]:
     for numer in range(26):
         if not maska & (1 << numer):
             continue
-        litera = f"{chr(ord('A') + numer)}:\\"
-        if kernel32.GetDriveTypeW(litera) == DRIVE_CDROM:
-            wynik.append(OpticalDrive(f"\\\\.\\{litera[:2]}", "CD/DVD"))
+        litera = f"{chr(ord('A') + numer)}:"
+        if kernel32.GetDriveTypeW(litera + "\\") != DRIVE_CDROM:
+            continue
+        # Sciezka urzadzenia wyglada dziwnie ("\\\\.\\D:"), wiec w oknie
+        # pokazujemy litere, a droge do urzadzenia trzymamy osobno.
+        wynik.append(OpticalDrive(f"\\\\.\\{litera}",
+                                  f"{litera}  CD/DVD"))
     return wynik
+
+
+def _kernel32():
+    """
+    Biblioteka systemowa z zadeklarowanymi typami.
+
+    Deklaracje nie sa ozdoba: uchwyt do urzadzenia jest pod Windows
+    liczba 64-bitowa, a bez nich Python obcina go do 32 bitow. Wywolanie
+    dostaje wtedy smiec, sterownik odmawia i wyglada to jak brak spisu
+    tresci na plycie - a nie jak blad programu.
+    """
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateFileW.restype = wintypes.HANDLE
+    kernel32.CreateFileW.argtypes = [
+        wintypes.LPCWSTR, wintypes.DWORD, wintypes.DWORD, ctypes.c_void_p,
+        wintypes.DWORD, wintypes.DWORD, wintypes.HANDLE]
+    kernel32.DeviceIoControl.restype = wintypes.BOOL
+    kernel32.DeviceIoControl.argtypes = [
+        wintypes.HANDLE, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+        ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(wintypes.DWORD),
+        ctypes.c_void_p]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    return kernel32
+
+
+# Ostatni blad wywolania systemowego - do uwag w raporcie. Bez niego
+# nieudane pytanie do sterownika wyglada tak samo jak plyta bez sciezek.
+_ostatni_blad = 0
+
+
+def _uchwyt_windows(device: str, dostep: int = GENERIC_READ):
+    """
+    Uchwyt do napedu optycznego pod Windows albo None.
+
+    Poziom dostepu ma znaczenie i nie da sie go zgadnac raz na zawsze:
+    pytanie o rozmiar dziala na uchwycie bez zadnego dostepu, a pytanie
+    o spis tresci wymaga prawa odczytu danych i bez niego konczy sie
+    odmowa (kod 5). Dlatego kazde wywolanie mowi, czego potrzebuje.
+    """
+    global _ostatni_blad
+    import ctypes
+    kernel32 = _kernel32()
+    niepoprawny = ctypes.c_void_p(-1).value
+    uchwyt = kernel32.CreateFileW(
+        device, dostep, FILE_SHARE_READ | FILE_SHARE_WRITE, None,
+        OPEN_EXISTING, 0, None)
+    if uchwyt and uchwyt != niepoprawny:
+        _ostatni_blad = 0
+        return uchwyt, kernel32
+    _ostatni_blad = _kod_bledu()
+    return None, kernel32
+
+
+KODY_BLEDOW = {
+    5: "odmowa dostepu",
+    21: "naped nie jest gotowy",
+    50: "naped nie obsluguje tego polecenia",
+    122: "za maly bufor odpowiedzi",
+    1117: "blad urzadzenia",
+}
+
+
+def opis_bledu(kod: int) -> str:
+    """Kod bledu razem z krotkim wyjasnieniem, jesli je znamy."""
+    nazwa = KODY_BLEDOW.get(kod)
+    return f"kod bledu {kod} ({nazwa})" if nazwa else f"kod bledu {kod}"
+
+
+def _kod_bledu() -> int:
+    """
+    Kod bledu ostatniego wywolania systemowego.
+
+    Funkcja istnieje tylko pod Windows, wiec siegamy po nia ostroznie -
+    inaczej sama diagnostyka wywracalaby program tam, gdzie jej nie ma.
+    """
+    import ctypes
+    pobierz = getattr(ctypes, "get_last_error", None)
+    return pobierz() if pobierz is not None else 0
+
+
+def _zapisz_blad(kernel32=None) -> None:
+    """Zapamietuje kod bledu ostatniego wywolania sterownika."""
+    global _ostatni_blad
+    _ostatni_blad = _kod_bledu()
+
+
+def _pytanie_windows(device: str, polecenie: int, bufor, rozmiar: int):
+    """
+    Zadaje sterownikowi jedno pytanie, probujac obu poziomow dostepu.
+
+    Przy odmowie (kod 5) powtarzamy z drugim poziomem, zamiast uznawac
+    sprawe za zamknieta - roznice miedzy poleceniami sa na tyle drobne,
+    ze prosciej sprobowac, niz je wszystkie wypisac.
+    """
+    global _ostatni_blad
+    import ctypes
+    from ctypes import wintypes
+    for dostep in (GENERIC_READ, 0):
+        uchwyt, kernel32 = _uchwyt_windows(device, dostep)
+        if uchwyt is None:
+            continue
+        try:
+            zwrocone = wintypes.DWORD()
+            ok = kernel32.DeviceIoControl(
+                uchwyt, polecenie, None, 0, bufor, rozmiar,
+                ctypes.byref(zwrocone), None)
+            if ok:
+                _ostatni_blad = 0
+                return True, int(zwrocone.value)
+            _zapisz_blad(kernel32)
+        finally:
+            kernel32.CloseHandle(uchwyt)
+    return False, 0
+
+
+def _windows_rozmiar(device: str) -> int:
+    """
+    Rozmiar plyty w bajtach, wprost od sterownika.
+
+    Pod Linuksem wystarczy przesuniecie na koniec urzadzenia; pod Windows
+    to nie dziala na surowym napedzie - zwraca zero i program nie wie,
+    ile ma zgrywac. Stad osobne pytanie do sterownika.
+    """
+    import ctypes
+    bufor = ctypes.create_string_buffer(8)
+    ok, _ = _pytanie_windows(device, IOCTL_DISK_GET_LENGTH_INFO, bufor, 8)
+    if not ok:
+        return 0
+    return int.from_bytes(bufor.raw[:8], "little")
+
+
+def sciezki_z_toc_windows(dane: bytes) -> tuple[int, int]:
+    """
+    Liczy sciezki danych i audio ze spisu tresci w postaci, jaka zwraca
+    Windows.
+
+    Uwaga na roznice wobec Linuksa: tam pole kontrolne siedzi w starszych
+    czterech bitach, a tutaj w mlodszych. Pomylenie tego zamienia plyte
+    z muzyka w plyte z danymi.
+    """
+    if len(dane) < 4:
+        return 0, 0
+    pierwsza, ostatnia = dane[2], dane[3]
+    dane_ile = audio = 0
+    for numer in range(ostatnia - pierwsza + 1):
+        od = 4 + numer * 8
+        if od + 8 > len(dane):
+            break
+        kontrola = dane[od + 1] & 0x0F
+        if kontrola & 0x04:
+            dane_ile += 1
+        else:
+            audio += 1
+    return dane_ile, audio
 
 
 def list_drives() -> list[OpticalDrive]:
     return _windows_drives() if os.name == "nt" else _linux_drives()
+
+
+def _windows_sciezki(device: str, info: DiscInfo) -> None:
+    """Spis tresci plyty pod Windows."""
+    import ctypes
+    bufor = ctypes.create_string_buffer(ROZMIAR_TOC)
+    ok, zwrocone = _pytanie_windows(device, IOCTL_CDROM_READ_TOC, bufor,
+                                    ROZMIAR_TOC)
+    if ok:
+        info.data_tracks, info.audio_tracks = sciezki_z_toc_windows(
+            bufor.raw[:zwrocone])
 
 
 # --------------------------------------------------------------------------
@@ -320,7 +509,11 @@ def probe(device: str) -> DiscInfo:
                 if not info.present:
                     return info
             _sciezki_plyty(uchwyt, info)
+        elif os.name == "nt":
+            _windows_sciezki(device, info)
         rozmiar = _rozmiar_urzadzenia(uchwyt)
+        if not rozmiar and os.name == "nt":
+            rozmiar = _windows_rozmiar(device)
         info.device_sectors = rozmiar // SEKTOR
         info.sectors = info.device_sectors
         info.present = info.present or rozmiar > 0
@@ -329,6 +522,11 @@ def probe(device: str) -> DiscInfo:
             _opis_wolumenu(os.read(uchwyt, SEKTOR), info)
         except OSError:
             pass
+        if info.device_sectors == 0 and info.sectors > 0:
+            # Sterownik nie podal rozmiaru, ale plyta sama mowi, ile ma
+            # blokow - to wystarczy, zeby ja zgrac.
+            info.device_sectors = info.sectors
+            info.present = True
         if info.sectors > info.device_sectors > 0:
             # Opis wolumenu bywa uszkodzony; nie czytamy poza nosnik.
             info.sectors = info.device_sectors
@@ -347,6 +545,14 @@ def probe(device: str) -> DiscInfo:
         info.notes.append(
             f"plyta ma {info.audio_tracks} sciezek audio - obraz .iso ich "
             "nie pomiesci, wiec gra dostanie dane bez muzyki")
+    if info.present and not (info.data_tracks or info.audio_tracks):
+        # Bez spisu tresci nie wiemy, czy na plycie jest muzyka - lepiej
+        # powiedziec to wprost, niz milczeniem sugerowac, ze jej nie ma.
+        powod = (f" ({opis_bledu(_ostatni_blad)})"
+                 if os.name == "nt" and _ostatni_blad else "")
+        info.notes.append("nie udalo sie odczytac spisu tresci plyty - "
+                          "program nie wie, czy sa na niej sciezki audio"
+                          + powod)
     if info.present and not info.iso:
         info.notes.append("brak opisu wolumenu ISO 9660 - obraz powstanie, "
                           "ale system plikow moze byc inny niz spodziewany")
@@ -542,6 +748,66 @@ def opis_plyty(info: DiscInfo) -> str:
 #  Wiersz polecen
 # --------------------------------------------------------------------------
 
+def _diagnostyka(device: str) -> int:
+    """
+    Pokazuje krok po kroku, co odpowiada system przy pytaniu o plyte.
+
+    Pisane pod jeden konkretny przypadek: pod Windows spis tresci nie
+    wychodzil, a po kolejnych poprawkach zmienil sie objaw. Zgadywanie
+    przestalo miec sens - latwiej zobaczyc kazdy krok osobno.
+    """
+    print(f"urzadzenie: {device}")
+    print(f"system:     {os.name}")
+    if os.name != "nt":
+        uchwyt = os.open(device, os.O_RDONLY)
+        try:
+            info = DiscInfo()
+            _sciezki_plyty(uchwyt, info)
+            print(f"spis tresci: {info.data_tracks} danych, "
+                  f"{info.audio_tracks} audio")
+            print(f"rozmiar:     {_rozmiar_urzadzenia(uchwyt)} B")
+        finally:
+            os.close(uchwyt)
+        return 0
+
+    import ctypes
+    from ctypes import wintypes
+    kernel32 = _kernel32()
+    niepoprawny = ctypes.c_void_p(-1).value
+    for nazwa, dostep in (("bez dostepu", 0), ("odczyt", GENERIC_READ)):
+        uchwyt = kernel32.CreateFileW(
+            device, dostep, FILE_SHARE_READ | FILE_SHARE_WRITE, None,
+            OPEN_EXISTING, 0, None)
+        if not uchwyt or uchwyt == niepoprawny:
+            print(f"otwarcie ({nazwa}): nieudane, {opis_bledu(_kod_bledu())}")
+            continue
+        print(f"otwarcie ({nazwa}): udane")
+        for opis, polecenie, ile in (
+                ("rozmiar", IOCTL_DISK_GET_LENGTH_INFO, 8),
+                ("spis tresci", IOCTL_CDROM_READ_TOC, ROZMIAR_TOC),
+                ("gotowosc nosnika", IOCTL_STORAGE_CHECK_VERIFY2, 0)):
+            bufor = ctypes.create_string_buffer(max(1, ile))
+            zwrocone = wintypes.DWORD()
+            ok = kernel32.DeviceIoControl(
+                uchwyt, polecenie, None, 0,
+                bufor if ile else None, ile,
+                ctypes.byref(zwrocone), None)
+            if not ok:
+                print(f"   {opis:<18} odmowa, {opis_bledu(_kod_bledu())}")
+                continue
+            print(f"   {opis:<18} ok, zwrocono {int(zwrocone.value)} B")
+            if ile:
+                print(f"      pierwsze bajty: "
+                      f"{bufor.raw[:min(24, ile)].hex(' ')}")
+            if polecenie == IOCTL_CDROM_READ_TOC:
+                dane, audio = sciezki_z_toc_windows(
+                    bufor.raw[:int(zwrocone.value)])
+                print(f"      odczytano sciezki: {dane} danych, "
+                      f"{audio} audio")
+        kernel32.CloseHandle(uchwyt)
+    return 0
+
+
 def _postep(raport: ReadReport) -> bool:
     procent = raport.done * 100 // max(1, raport.sectors)
     ogon = f"   nieczytelnych: {len(raport.bad)}" if raport.bad else ""
@@ -556,6 +822,10 @@ def main(argv: list[str] | None = None) -> int:
     pod = parser.add_subparsers(dest="cmd", required=True)
     pod.add_parser("list")
     p = pod.add_parser("probe")
+    p.add_argument("device")
+    p = pod.add_parser("diag")
+    p.add_argument("device")
+    p = pod.add_parser("toc")
     p.add_argument("device")
     p = pod.add_parser("read")
     p.add_argument("device")
@@ -573,6 +843,31 @@ def main(argv: list[str] | None = None) -> int:
                 return 1
             for naped in napedy:
                 print(naped)
+            return 0
+        if arg.cmd == "diag":
+            return _diagnostyka(arg.device)
+        if arg.cmd == "diag":
+            return _diagnostyka(arg.device)
+        if arg.cmd == "toc":
+            # Diagnostyka: pokazuje surowa odpowiedz sterownika na pytanie
+            # o spis tresci. Przydatne, gdy plyta wyglada jak plyta bez
+            # sciezek - widac wtedy, czy to plyta, czy odmowa systemu.
+            info = DiscInfo()
+            if os.name == "nt":
+                _windows_sciezki(arg.device, info)
+            else:
+                uchwyt = os.open(arg.device, os.O_RDONLY)
+                try:
+                    _sciezki_plyty(uchwyt, info)
+                finally:
+                    os.close(uchwyt)
+            print(f"sciezki z danymi: {info.data_tracks}")
+            print(f"sciezki audio:    {info.audio_tracks}")
+            if not info.data_tracks and not info.audio_tracks:
+                print("spisu tresci nie udalo sie odczytac"
+                      + (f" ({opis_bledu(_ostatni_blad)})"
+                         if _ostatni_blad else ""))
+                return 1
             return 0
         if arg.cmd == "probe":
             info = probe(arg.device)

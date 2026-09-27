@@ -31,3 +31,5 @@ plan*.txt
 .vscode/
 *.swp
 .DS_Store
+*.iso
+*.iso

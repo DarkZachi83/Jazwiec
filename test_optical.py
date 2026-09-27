@@ -117,9 +117,26 @@ class Rozpoznanie(PlytaTestowa):
         self.assertIn("12 audio", optical.opis_plyty(info))
 
     def test_plyta_z_samymi_danymi_bez_uwagi_o_audio(self):
+        prawdziwy = optical._sciezki_plyty
+
+        def spis(uchwyt, info):
+            info.data_tracks, info.audio_tracks = 1, 0
+
+        optical._sciezki_plyty = spis
+        self.addCleanup(setattr, optical, "_sciezki_plyty", prawdziwy)
         info = optical.probe(self.plyta())
         self.assertFalse(info.has_audio)
         self.assertFalse(any("audio" in u for u in info.notes))
+
+    def test_brak_spisu_tresci_jest_zglaszany(self):
+        """
+        Bez spisu tresci nie wiemy, czy na plycie jest muzyka. Milczenie
+        sugerowaloby, ze jej nie ma - a pod Windows spis dlugo nie dzialal
+        i program nie mowil o tym ani slowa.
+        """
+        info = optical.probe(self.plyta())
+        self.assertEqual((info.data_tracks, info.audio_tracks), (0, 0))
+        self.assertTrue(any("spisu tresci" in u for u in info.notes))
 
     def test_brak_plyty_opisany_wprost(self):
         self.assertEqual(optical.opis_plyty(optical.DiscInfo()),
@@ -178,6 +195,160 @@ class SpisTresci(unittest.TestCase):
         wczytuje sie wcale - plyta wyglada wtedy jak plyta bez sciezek.
         """
         self.assertEqual(optical.ROZMIAR_WPISU_TOC, 12)
+
+
+class SpisTresciWindows(unittest.TestCase):
+    """
+    Windows zwraca spis tresci w innym ukladzie niz Linux: pole kontrolne
+    siedzi w mlodszych czterech bitach, a nie w starszych. Pomylenie tego
+    zamienia plyte z muzyka w plyte z danymi - a wtedy program zaczyna
+    zgrywac cos, czego zgrac sie nie da.
+    """
+
+    @staticmethod
+    def wpis(numer: int, kontrola: int) -> bytes:
+        return bytes([0, kontrola & 0x0F, numer, 0, 0, 0, 0, 0])
+
+    def naglowek(self, pierwsza: int, ostatnia: int) -> bytes:
+        return bytes([0, 0, pierwsza, ostatnia])
+
+    def test_plyta_z_danymi(self):
+        toc = self.naglowek(1, 1) + self.wpis(1, 0x04)
+        self.assertEqual(optical.sciezki_z_toc_windows(toc), (1, 0))
+
+    def test_plyta_mieszana(self):
+        toc = (self.naglowek(1, 3) + self.wpis(1, 0x04)
+               + self.wpis(2, 0x00) + self.wpis(3, 0x00))
+        self.assertEqual(optical.sciezki_z_toc_windows(toc), (1, 2))
+
+    def test_plyta_audio(self):
+        toc = self.naglowek(1, 2) + self.wpis(1, 0x00) + self.wpis(2, 0x00)
+        self.assertEqual(optical.sciezki_z_toc_windows(toc), (0, 2))
+
+    def test_wpis_zamykajacy_nie_jest_sciezka(self):
+        """
+        Sterownik dokłada po ostatniej sciezce wpis zamykajacy plyte
+        (numer 0xAA). Liczony razem z reszta dodawalby plycie jedna
+        nieistniejaca sciezke - i plyta z samymi danymi wygladalaby jak
+        mieszana.
+        """
+        toc = (self.naglowek(1, 1) + self.wpis(1, 0x04)
+               + self.wpis(0xAA, 0x00))
+        self.assertEqual(optical.sciezki_z_toc_windows(toc), (1, 0))
+
+    def test_kody_bledow_maja_wyjasnienie(self):
+        """
+        "kod bledu 122" nic nie mowi, a "za maly bufor odpowiedzi" wskazuje
+        przyczyne. Przy zglaszaniu usterek z cudzego komputera to roznica
+        miedzy zgadywaniem a diagnoza.
+        """
+        self.assertIn("odmowa dostepu", optical.opis_bledu(5))
+        self.assertIn("bufor", optical.opis_bledu(122))
+        self.assertEqual(optical.opis_bledu(4242), "kod bledu 4242")
+
+    def test_bufor_na_pelne_sto_sciezek(self):
+        """
+        Windows odpowiada kodem 122 ("bufor za maly"), gdy miejsca jest
+        mniej niz na sto wpisow. Objaw jest taki sam jak przy plycie bez
+        sciezek, wiec latwo wziac jedno za drugie - kosztowalo to kilka
+        blednych diagnoz.
+        """
+        self.assertEqual(optical.MAKS_SCIEZEK_TOC, 100)
+        self.assertEqual(optical.ROZMIAR_TOC, 4 + 100 * 8)
+
+    def test_uciety_bufor_nie_wywraca(self):
+        self.assertEqual(optical.sciezki_z_toc_windows(b""), (0, 0))
+        self.assertEqual(
+            optical.sciezki_z_toc_windows(self.naglowek(1, 5)), (0, 0))
+
+
+class PoziomyDostepuWindows(unittest.TestCase):
+    """
+    Pod Windows kazde pytanie do sterownika wymaga innego poziomu dostepu:
+    rozmiar dziala na uchwycie bez zadnego, a spis tresci wymaga prawa
+    odczytu danych i bez niego konczy sie odmowa (kod 5). Program musi
+    sprobowac obu, zamiast poprzestac na pierwszym otwartym uchwycie.
+    """
+
+    def podstaw_sterownik(self, dziala_przy):
+        """dziala_przy: poziom dostepu, przy ktorym wywolanie sie udaje."""
+        proby = []
+        prawdziwy_uchwyt = optical._uchwyt_windows
+
+        class Atrapa:
+            def DeviceIoControl(self, uchwyt, polecenie, *reszta):
+                proby.append(uchwyt)
+                return 1 if uchwyt == dziala_przy else 0
+
+            def CloseHandle(self, uchwyt):
+                return 1
+
+        optical._uchwyt_windows = lambda device, dostep=0: (dostep, Atrapa())
+        self.addCleanup(setattr, optical, "_uchwyt_windows",
+                        prawdziwy_uchwyt)
+        return proby
+
+    def test_pytanie_powtarzane_przy_odmowie(self):
+        import ctypes
+        proby = self.podstaw_sterownik(dziala_przy=0)
+        bufor = ctypes.create_string_buffer(8)
+        ok, _ = optical._pytanie_windows(r"\\.\H:", 0x1234, bufor, 8)
+        self.assertTrue(ok, "drugi poziom dostepu ma dostac swoja szanse")
+        self.assertEqual(proby, [optical.GENERIC_READ, 0])
+
+    def test_pierwszy_poziom_wystarcza(self):
+        import ctypes
+        proby = self.podstaw_sterownik(dziala_przy=optical.GENERIC_READ)
+        bufor = ctypes.create_string_buffer(8)
+        ok, _ = optical._pytanie_windows(r"\\.\H:", 0x1234, bufor, 8)
+        self.assertTrue(ok)
+        self.assertEqual(proby, [optical.GENERIC_READ],
+                         "gdy pierwszy dziala, drugiego nie probujemy")
+
+    def test_odmowa_na_obu_poziomach(self):
+        import ctypes
+        proby = self.podstaw_sterownik(dziala_przy=None)
+        bufor = ctypes.create_string_buffer(8)
+        ok, _ = optical._pytanie_windows(r"\\.\H:", 0x1234, bufor, 8)
+        self.assertFalse(ok)
+        self.assertEqual(len(proby), 2)
+
+
+
+class RozmiarNieznany(PlytaTestowa):
+    """
+    Pod Windows przesuniecie na koniec urzadzenia nie podaje rozmiaru
+    plyty - zwraca zero. Program musi wtedy wziac liczbe blokow z opisu
+    wolumenu, bo inaczej nie wie, ile ma zgrywac, i nie zgrywa nic.
+    Zgloszone z prawdziwego Windowsa.
+    """
+
+    def podstaw_brak_rozmiaru(self):
+        prawdziwy = optical._rozmiar_urzadzenia
+        optical._rozmiar_urzadzenia = lambda uchwyt: 0
+        self.addCleanup(setattr, optical, "_rozmiar_urzadzenia", prawdziwy)
+
+    def test_rozmiar_z_opisu_wolumenu(self):
+        self.podstaw_brak_rozmiaru()
+        info = optical.probe(self.plyta(sektorow=120))
+        self.assertTrue(info.present)
+        self.assertTrue(info.readable)
+        self.assertEqual(info.sectors, 120)
+
+    def test_zgrywanie_dziala_bez_rozmiaru_od_sterownika(self):
+        self.podstaw_brak_rozmiaru()
+        zrodlo = self.plyta(sektorow=120)
+        cel = self.sciezka("kopia.iso")
+        raport = optical.read_to_iso(zrodlo, cel)
+        self.assertTrue(raport.complete)
+        self.assertEqual(os.path.getsize(cel), 120 * SEKTOR)
+
+    def test_plyta_bez_opisu_i_bez_rozmiaru_jest_odrzucona(self):
+        """Gdy nie wiadomo ani ile, ani co - lepiej powiedziec wprost."""
+        self.podstaw_brak_rozmiaru()
+        info = optical.probe(self.plyta(sektorow=40, iso=False))
+        self.assertFalse(info.readable)
+
 
 
 class Porcje(PlytaTestowa):
