@@ -29,6 +29,10 @@ MODULY = [
     "test_diskset",
     "test_usbfloppy",
     "test_gwbridge",
+    "test_vhd",
+    "test_partitions",
+    "test_fat16",
+    "test_optical",
     "test_interfejs",
 ]
 
