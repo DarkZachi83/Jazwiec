@@ -23,7 +23,7 @@ behaves identically on Linux and Windows — and needs no `sudo`.
 | `gwbridge.py` | Greaseweazle bridge: runs `gw` and parses its output |
 | `vhd.py` | reading VHD disk images |
 | `partitions.py` | partition table of disk images |
-| `optical.py` | reading CD and DVD discs into `.iso` files |
+| `optical.py` | reading CD discs into `.iso` files |
 | `fat16.py` | FAT16/FAT12 engine for hard disks |
 | `dialogs_disk.py` | partition chooser window |
 | `dialogs_gw.py` | Greaseweazle window (with `gwbridge.py`) |
@@ -59,6 +59,25 @@ stripes on a badger's face stay recognisable even at 16 pixels.
 python -m PyInstaller --onefile --windowed --icon=jazwiec.ico ^
     --name RetroZachar main.py
 ```
+
+### Building a .exe
+
+```bat
+py -m pip install pyinstaller
+py -m PyInstaller --onefile --windowed --icon=jazwiec.ico --name RetroZachar ^
+    --add-data "jazwiec.png;." ^
+    --add-data "jazwiec-64.png;." ^
+    --add-data "jazwiec-32.png;." ^
+    --add-data "jazwiec-panel.png;." ^
+    --add-data "jazwiec-gw.png;." ^
+    --add-data "jazwiec-cd.png;." ^
+    main.py
+```
+
+The finished file lands in `dist`. Leaving out any `--add-data` gives a
+program with no icons and no report backgrounds — it runs, but it looks
+like someone else's. On Windows the separator in `--add-data` is a
+semicolon; on Linux and macOS it is a colon.
 
 ## Greaseweazle
 
@@ -606,7 +625,7 @@ Without the udev rule installed these commands need `sudo`.
 
 ## Language
 
-The program starts in Polish. English is chosen from the **Język → English**
+The program starts in English. Polish is chosen from the **Language → Polski**
 menu; the choice is saved in `~/.retrozachar.json` and applies to later runs.
 Switching works immediately and does not close the open image — the current
 directory and the selected format stay as they were.
@@ -874,9 +893,10 @@ python3 vhd.py info disk.vhd
 python3 partitions.py disk.vhd
 ```
 
-## CD and DVD discs
+## CD discs
 
-Reading a data disc into an `.iso` file. From the command line for now; it
+Reading a CD data disc into an `.iso` file. A DVD with data in
+ISO 9660 reads the same way, but only CDs have been verified. From the command line for now; it
 will appear in the window in a later step. The program does not burn discs —
 system tools do that already.
 
@@ -936,7 +956,7 @@ directory structure stays intact.
 Symbolic links are skipped: they have no counterpart on a floppy, and
 following them would risk looping.
 
-In the program: **Drive → CD and DVD discs**. The window lists the
+In the program: **Drive → CD discs**. The window lists the
 drives it found, describes the disc together with any warnings, shows a
 progress bar with a count of unreadable sectors, and a report that can be
 saved to a file. The number of retries per sector is set in the window — on

@@ -23,7 +23,7 @@ na Linuksie i na Windowsie — i nie potrzebuje `sudo`.
 | `gwbridge.py` | most do Greaseweazle: uruchamia `gw` i rozbiera jego wyjście |
 | `vhd.py` | odczyt obrazów dysków VHD |
 | `partitions.py` | tablica partycji obrazów dysków |
-| `optical.py` | zgrywanie płyt CD i DVD do pliku `.iso` |
+| `optical.py` | zgrywanie płyt CD do pliku `.iso` |
 | `fat16.py` | silnik FAT16/FAT12 dla dysków twardych |
 | `dialogs_disk.py` | okno wyboru partycji |
 | `dialogs_gw.py` | okno Greaseweazle (z `gwbridge.py`) |
@@ -60,6 +60,25 @@ sześć rozmiarów:
 python -m PyInstaller --onefile --windowed --icon=jazwiec.ico ^
     --name RetroZachar main.py
 ```
+
+### Budowanie pliku .exe
+
+```bat
+py -m pip install pyinstaller
+py -m PyInstaller --onefile --windowed --icon=jazwiec.ico --name RetroZachar ^
+    --add-data "jazwiec.png;." ^
+    --add-data "jazwiec-64.png;." ^
+    --add-data "jazwiec-32.png;." ^
+    --add-data "jazwiec-panel.png;." ^
+    --add-data "jazwiec-gw.png;." ^
+    --add-data "jazwiec-cd.png;." ^
+    main.py
+```
+
+Gotowy plik ląduje w katalogu `dist`. Pominięcie któregokolwiek
+`--add-data` daje program bez ikon i bez tła raportów — działający, ale
+wyglądający jak cudzy. Pod Windows rozdzielnikiem w `--add-data` jest
+średnik; pod Linuksem i macOS dwukropek.
 
 ## Greaseweazle
 
@@ -603,7 +622,7 @@ Bez zainstalowanej reguły udev te polecenia wymagają `sudo`.
 
 ## Język
 
-Program startuje po polsku. Angielski wybierasz z menu **Język → English**;
+Program startuje po angielsku. Polski wybierasz z menu **Language → Polski**;
 wybór zapisuje się w `~/.retrozachar.json` i obowiązuje przy kolejnych
 uruchomieniach. Przełączenie działa od razu i nie zamyka otwartego obrazu —
 zostaje też bieżący katalog i zaznaczony format.
@@ -862,9 +881,10 @@ python3 vhd.py info dysk.vhd
 python3 partitions.py dysk.vhd
 ```
 
-## Płyty CD i DVD
+## Płyty CD
 
-Zgrywanie płyty z danymi do pliku `.iso`. Na razie z wiersza poleceń;
+Zgrywanie płyty CD z danymi do pliku `.iso`. Płyta DVD z danymi
+w ISO 9660 zgra się tak samo, ale sprawdzone zostały tylko CD. Na razie z wiersza poleceń;
 w oknie pojawi się w kolejnym kroku. Wypalania program nie robi — od tego
 są narzędzia systemowe.
 
@@ -924,7 +944,7 @@ Struktura katalogów pozostaje nienaruszona.
 Dowiązania symboliczne są pomijane: na dyskietce nie mają odpowiednika,
 a podążanie za nimi groziłoby zapętleniem.
 
-W programie: **Napęd → Płyty CD i DVD**. Okno pokazuje wykryte napędy,
+W programie: **Napęd → Płyty CD**. Okno pokazuje wykryte napędy,
 opis płyty razem z ostrzeżeniami, pasek postępu z licznikiem nieczytelnych
 sektorów i raport, który można zapisać do pliku. Liczbę prób na sektor
 ustawia się w oknie — przy płycie porysowanej większa daje lepszą szansę,

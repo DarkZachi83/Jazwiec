@@ -2,6 +2,32 @@
 
 Numery wersji odpowiadają wartości `APP_VERSION` w `styles.py`.
 
+## 1.14.2
+
+- Testy okna ustawiają język wprost, zaraz po utworzeniu okna. Dotąd
+  polegały na domyślnym, więc zmiana domyślnego na angielski wywracała
+  kilkanaście testów, które z językiem nie miały nic wspólnego.
+
+## 1.14.1
+
+- Okno i menu nazywają się teraz „Płyty CD", bez DVD. Płyta DVD z danymi
+  w ISO 9660 zgrywa się tak samo — sektor to sektor — ale sprawdzone
+  zostały tylko CD, a nazwa obiecująca więcej niż potwierdzone jest gorsza
+  niż skromna.
+
+## 1.14
+
+- **Domyślnym językiem jest angielski.** Program trafia do ludzi spoza
+  Polski i pierwszy ekran musi być dla nich czytelny; polski wybiera się
+  z menu Language, a wybór zostaje zapamiętany.
+- Moduł płyt mówi w obu językach: uwagi, komunikaty błędów i cały raport
+  ze zgrywania. Dotąd okno było tłumaczone, a raport wychodził po polsku
+  niezależnie od wyboru.
+- Kody błędów systemowych też są tłumaczone.
+- Testy ustawiają język wprost, zamiast polegać na domyślnym. Test, który
+  zakłada jakikolwiek domyślny, pada przy następnej takiej zmianie i nie
+  mówi wtedy nic o samym programie.
+
 ## 1.13.8
 
 - **Spis treści płyty pod Windows: bufor był o osiem bajtów za mały.**
@@ -83,7 +109,7 @@ Numery wersji odpowiadają wartości `APP_VERSION` w `styles.py`.
 
 ## 1.13
 
-- **Okno płyt CD i DVD** w menu Napęd, pod Greaseweazle: wybór napędu,
+- **Okno płyt CD** w menu Napęd, pod Greaseweazle: wybór napędu,
   opis płyty z ostrzeżeniami, liczba prób na sektor, pasek postępu
   z licznikiem nieczytelnych sektorów, przerwanie i raport na dole.
 - Płytę z samą muzyką okno rozpoznaje i nie pozwala zacząć zgrywania,
@@ -130,7 +156,7 @@ Numery wersji odpowiadają wartości `APP_VERSION` w `styles.py`.
 
 ## 1.11
 
-- Nowy moduł `optical.py`: zgrywanie płyt CD i DVD do pliku `.iso`,
+- Nowy moduł `optical.py`: zgrywanie płyt CD do pliku `.iso`,
   na razie z wiersza poleceń. Wykrywa napędy, rozpoznaje płytę po opisie
   wolumenu ISO 9660 i bierze z niego prawdziwą liczbę bloków — rozmiar
   urządzenia bywa zawyżony o sektory wyrównujące.

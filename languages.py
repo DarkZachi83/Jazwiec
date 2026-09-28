@@ -14,7 +14,7 @@ z polskiego.
 
 from __future__ import annotations
 
-DEFAULT_LANGUAGE = "pl"
+DEFAULT_LANGUAGE = "en"
 
 # Nazwy jezykow zawsze w ich wlasnym jezyku - tak, zeby dalo sie je znalezc
 # nawet po przypadkowym przelaczeniu na nieznany sobie jezyk.
@@ -72,8 +72,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "menu_add": "Dodaj pliki...",
         "menu_add_folder": "Dodaj katalog z podkatalogami...",
         "menu_gw": "Greaseweazle...",
-        "menu_optical": "Plyty CD i DVD...",
-        "cd_title": "Plyty CD i DVD",
+        "menu_optical": "Plyty CD...",
+        "cd_title": "Plyty CD",
         "cd_intro": "Zgrywanie plyty z danymi do pliku .iso. Wypalania\n"
                     "program nie robi - od tego sa narzedzia systemowe.",
         "cd_drive": "Naped:",
@@ -665,8 +665,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "menu_add": "Add files...",
         "menu_add_folder": "Add folder with subfolders...",
         "menu_gw": "Greaseweazle...",
-        "menu_optical": "CD and DVD discs...",
-        "cd_title": "CD and DVD discs",
+        "menu_optical": "CD discs...",
+        "cd_title": "CD discs",
         "cd_intro": "Reading a data disc into an .iso file. The program\n"
                     "does not burn discs - system tools do that.",
         "cd_drive": "Drive:",

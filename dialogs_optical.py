@@ -1,5 +1,5 @@
 """
-dialogs_optical.py - okno zgrywania plyt CD i DVD.
+dialogs_optical.py - okno zgrywania plyt CD.
 
 Czesc projektu "RetroZachar - FFD Disk Maker - Jazwiec".
 
@@ -149,6 +149,9 @@ class OpticalDialog(tk.Toplevel):
         self.btn_cancel.configure(state="disabled")
         self.btn_cancel.pack(side="right", padx=(0, 8))
 
+        # Raporty i uwagi powstaja w module, wiec musi znac jezyk okna -
+        # inaczej angielski interfejs pokazuje polski raport.
+        optical.set_language(app.lang)
         self.protocol("WM_DELETE_WINDOW", self.zamknij)
         self.bind("<Escape>", lambda e: self.zamknij())
         self.odswiez_napedy()
@@ -211,6 +214,7 @@ class OpticalDialog(tk.Toplevel):
     # -- sprawdzenie plyty --------------------------------------------------
 
     def sprawdz_plyte(self) -> None:
+        optical.set_language(self.app.lang)
         """
         Odczytuje opis plyty. Idzie w tle, bo naped potrafi sie rozkrecac
         kilka sekund, a okno nie moze w tym czasie zamarzac.

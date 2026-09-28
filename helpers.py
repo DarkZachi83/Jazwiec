@@ -146,11 +146,24 @@ def podstaw_naped(usbfloppy, **uszkodzenia):
     usbfloppy._open_device = otworz
 
 
+# Jezyk testow. Napisy sprawdzane w testach sa polskie, a domyslny jezyk
+# programu zmienil sie na angielski wraz z wydaniem publicznym. Ustawiamy
+# go wprost: test, ktory zaklada jakikolwiek domyslny, pada przy nastepnej
+# takiej zmianie i nie mowi wtedy nic o samym programie.
+JEZYK_TESTOW = "pl"
+
+
 def wyczysc_ustawienia() -> None:
-    """Usuwa plik ustawien testow - nastepne okno startuje od domyslnych."""
+    """
+    Ustawienia od zera, z jezykiem ustawionym wprost.
+
+    Nastepne okno startuje od domyslnych wartosci, ale w znanym jezyku.
+    """
+    import json
     try:
-        os.remove(PLIK_USTAWIEN_TESTOW)
-    except FileNotFoundError:
+        with open(PLIK_USTAWIEN_TESTOW, "w", encoding="utf-8") as fh:
+            json.dump({"language": JEZYK_TESTOW}, fh)
+    except OSError:
         pass
 
 

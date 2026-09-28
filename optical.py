@@ -1,11 +1,15 @@
 """
-optical.py - zgrywanie plyt CD i DVD do pliku .iso.
+optical.py - zgrywanie plyt CD do pliku .iso.
 
 Czesc projektu "RetroZachar - FFD Disk Maker - Jazwiec".
 
 Co robi, a czego nie
     Zgrywa zawartosc plyty z danymi do obrazu .iso. Nie wypala - od tego sa
     narzedzia systemowe i nie ma sensu ich powielac.
+
+    W nazwie zostaly same plyty CD, bo tylko na nich program byl sprawdzony.
+    Plyta DVD z danymi w ISO 9660 zgra sie tak samo - sektor to sektor -
+    ale obiecywanie tego bez proby byloby na wyrost.
 
 Czego .iso nie pomiesci
     Plyta bywa czyms wiecej niz jednym ciagiem sektorow z danymi. Sciezki
@@ -49,6 +53,7 @@ __all__ = [
     "sciezka_z_danymi",
     "sciezki_z_toc_windows",
     "opis_bledu",
+    "set_language",
     "wpis_toc",
     "SEKTOR",
 ]
@@ -91,6 +96,144 @@ FILE_SHARE_READ = 1
 FILE_SHARE_WRITE = 2
 OPEN_EXISTING = 3
 ROZMIAR_WPISU_TOC = 12        # struktura wpisu spisu tresci, z wyrownaniem
+
+
+_T: dict[str, dict[str, str]] = {
+    "pl": {
+        "audio_only": "to plyta z sama muzyka ({count} sciezek audio) - nie "
+                      "da sie jej zgrac do .iso, bo muzyka nie lezy "
+                      "w sektorach z danymi. Do plyt audio sluza programy "
+                      "zgrywajace do WAV albo FLAC",
+        "audio_mixed": "plyta ma {count} sciezek audio - obraz .iso ich nie "
+                       "pomiesci, wiec gra dostanie dane bez muzyki",
+        "no_toc": "nie udalo sie odczytac spisu tresci plyty - program nie "
+                  "wie, czy sa na niej sciezki audio",
+        "no_iso": "brak opisu wolumenu ISO 9660 - obraz powstanie, ale "
+                  "system plikow moze byc inny niz spodziewany",
+        "too_many": "opis wolumenu podaje wiecej blokow, niz ma nosnik - "
+                    "bierzemy rozmiar urzadzenia",
+        "err_audio": "plyta ma same sciezki audio ({count}) - do pliku .iso "
+                     "nie da sie jej zgrac. Naped odmawia czytania muzyki "
+                     "jak danych, wiec zgrywanie mieliloby godzinami i dalo "
+                     "plik bez zadnej wartosci",
+        "err_no_disc": "w napedzie nie ma plyty z danymi",
+        "err_nothing": "naped nie oddal ani jednego z pierwszych {count} "
+                       "sektorow - to nie wyglada na plyte z danymi "
+                       "w formacie, ktory umiemy czytac",
+        "tray_open": "szuflada otwarta",
+        "no_disc": "brak plyty w napedzie",
+        "tracks": "sciezki: {data} z danymi, {audio} audio",
+        "size": "{mb} MB ({count} sektorow)",
+        "r_title": "RetroZachar - Jazwiec - raport ze zgrywania plyty",
+        "r_date": "Data:",
+        "r_drive": "Naped:",
+        "r_label": "Etykieta plyty:",
+        "r_system": "System:",
+        "r_image": "Obraz:",
+        "r_sectors": "Sektorow:",
+        "r_size": "Rozmiar:",
+        "r_tracks": "Sciezki:",
+        "r_time": "Czas:",
+        "r_bad": "Sektorow nieczytelnych:",
+        "r_bad_list": "Numery nieczytelnych sektorow:",
+        "r_more": "  ... i {count} dalszych",
+        "r_notes": "Uwagi:",
+        "r_diagnosis": "Rozpoznanie:",
+        "d_cancelled": "Zgrywanie przerwane - obraz jest niepelny.",
+        "d_complete": "Plyta zgrana w calosci.",
+        "d_bad": "Nie udalo sie odczytac {count} sektorow. Miejsca te sa "
+                 "w obrazie wypelnione zerami,\na reszta plyty zostala "
+                 "odzyskana. Warto sprobowac ponownie po wyczyszczeniu "
+                 "plyty.",
+        "e_5": "odmowa dostepu",
+        "e_21": "naped nie jest gotowy",
+        "e_50": "naped nie obsluguje tego polecenia",
+        "e_122": "za maly bufor odpowiedzi",
+        "e_1117": "blad urzadzenia",
+        "err_code": "kod bledu {code}",
+        "cli_no_drives": "nie znaleziono napedow optycznych",
+        "cli_note": "  uwaga:",
+        "cli_saved": "zapisano {path}",
+        "cli_cancelled": "przerwano",
+        "cli_no_toc": "spisu tresci nie udalo sie odczytac",
+        "cli_tracks_data": "sciezki z danymi: {count}",
+        "cli_tracks_audio": "sciezki audio:    {count}",
+    },
+    "en": {
+        "audio_only": "this is an audio-only disc ({count} audio tracks) - "
+                      "it cannot be read into an .iso, because music does "
+                      "not live in data sectors. Audio discs need a ripper "
+                      "that writes WAV or FLAC",
+        "audio_mixed": "the disc has {count} audio tracks - an .iso cannot "
+                       "hold them, so the game will get its data without "
+                       "the music",
+        "no_toc": "the disc's table of contents could not be read - the "
+                  "program does not know whether it has audio tracks",
+        "no_iso": "no ISO 9660 volume descriptor - the image will be made, "
+                  "but the filesystem may not be the expected one",
+        "too_many": "the volume descriptor claims more blocks than the "
+                    "medium holds - using the device size instead",
+        "err_audio": "the disc has only audio tracks ({count}) - it cannot "
+                     "be read into an .iso. The drive refuses to read music "
+                     "as data, so the job would grind for hours and produce "
+                     "a worthless file",
+        "err_no_disc": "there is no data disc in the drive",
+        "err_nothing": "the drive returned none of the first {count} "
+                       "sectors - this does not look like a data disc in a "
+                       "format we can read",
+        "tray_open": "tray open",
+        "no_disc": "no disc in the drive",
+        "tracks": "tracks: {data} data, {audio} audio",
+        "size": "{mb} MB ({count} sectors)",
+        "r_title": "RetroZachar - Jazwiec - disc reading report",
+        "r_date": "Date:",
+        "r_drive": "Drive:",
+        "r_label": "Disc label:",
+        "r_system": "System:",
+        "r_image": "Image:",
+        "r_sectors": "Sectors:",
+        "r_size": "Size:",
+        "r_tracks": "Tracks:",
+        "r_time": "Time:",
+        "r_bad": "Unreadable sectors:",
+        "r_bad_list": "Numbers of unreadable sectors:",
+        "r_more": "  ... and {count} more",
+        "r_notes": "Notes:",
+        "r_diagnosis": "Diagnosis:",
+        "d_cancelled": "Reading was stopped - the image is incomplete.",
+        "d_complete": "The disc was read in full.",
+        "d_bad": "{count} sectors could not be read. Those places are "
+                 "filled with zeros in the image,\nand the rest of the disc "
+                 "was recovered. It is worth trying again after cleaning "
+                 "the disc.",
+        "e_5": "access denied",
+        "e_21": "the drive is not ready",
+        "e_50": "the drive does not support this command",
+        "e_122": "the answer buffer is too small",
+        "e_1117": "device error",
+        "err_code": "error code {code}",
+        "cli_no_drives": "no optical drive found",
+        "cli_note": "  note:",
+        "cli_saved": "saved {path}",
+        "cli_cancelled": "stopped",
+        "cli_no_toc": "the table of contents could not be read",
+        "cli_tracks_data": "data tracks:  {count}",
+        "cli_tracks_audio": "audio tracks: {count}",
+    },
+}
+
+_lang = "en"
+
+
+def set_language(lang: str) -> None:
+    """Jezyk komunikatow i raportow modulu."""
+    global _lang
+    _lang = lang if lang in _T else "en"
+
+
+def _t(klucz: str, **kwargs) -> str:
+    tekst = _T[_lang].get(klucz) or _T["en"].get(klucz, klucz)
+    return tekst.format(**kwargs) if kwargs else tekst
 
 
 class OpticalError(Exception):
@@ -213,6 +356,8 @@ def _windows_drives() -> list[OpticalDrive]:
             continue
         # Sciezka urzadzenia wyglada dziwnie ("\\\\.\\D:"), wiec w oknie
         # pokazujemy litere, a droge do urzadzenia trzymamy osobno.
+        # System nie odroznia tu napedow CD od DVD, wiec i my nie
+        # udajemy, ze wiemy wiecej.
         wynik.append(OpticalDrive(f"\\\\.\\{litera}",
                                   f"{litera}  CD/DVD"))
     return wynik
@@ -272,19 +417,15 @@ def _uchwyt_windows(device: str, dostep: int = GENERIC_READ):
     return None, kernel32
 
 
-KODY_BLEDOW = {
-    5: "odmowa dostepu",
-    21: "naped nie jest gotowy",
-    50: "naped nie obsluguje tego polecenia",
-    122: "za maly bufor odpowiedzi",
-    1117: "blad urzadzenia",
-}
+ZNANE_BLEDY = (5, 21, 50, 122, 1117)
 
 
 def opis_bledu(kod: int) -> str:
     """Kod bledu razem z krotkim wyjasnieniem, jesli je znamy."""
-    nazwa = KODY_BLEDOW.get(kod)
-    return f"kod bledu {kod} ({nazwa})" if nazwa else f"kod bledu {kod}"
+    podstawa = _t("err_code", code=kod)
+    if kod in ZNANE_BLEDY:
+        return f"{podstawa} ({_t(f'e_{kod}')})"
+    return podstawa
 
 
 def _kod_bledu() -> int:
@@ -530,32 +671,22 @@ def probe(device: str) -> DiscInfo:
         if info.sectors > info.device_sectors > 0:
             # Opis wolumenu bywa uszkodzony; nie czytamy poza nosnik.
             info.sectors = info.device_sectors
-            info.notes.append("opis wolumenu podaje wiecej blokow, niz ma "
-                              "nosnik - bierzemy rozmiar urzadzenia")
+            info.notes.append(_t("too_many"))
     finally:
         os.close(uchwyt)
 
     if info.audio_only:
-        info.notes.append(
-            f"to plyta z sama muzyka ({info.audio_tracks} sciezek audio) - "
-            "nie da sie jej zgrac do .iso, bo muzyka nie lezy w sektorach "
-            "z danymi. Do plyt audio sluza programy zgrywajace do WAV "
-            "albo FLAC")
+        info.notes.append(_t("audio_only", count=info.audio_tracks))
     elif info.audio_tracks:
-        info.notes.append(
-            f"plyta ma {info.audio_tracks} sciezek audio - obraz .iso ich "
-            "nie pomiesci, wiec gra dostanie dane bez muzyki")
+        info.notes.append(_t("audio_mixed", count=info.audio_tracks))
     if info.present and not (info.data_tracks or info.audio_tracks):
         # Bez spisu tresci nie wiemy, czy na plycie jest muzyka - lepiej
         # powiedziec to wprost, niz milczeniem sugerowac, ze jej nie ma.
         powod = (f" ({opis_bledu(_ostatni_blad)})"
                  if os.name == "nt" and _ostatni_blad else "")
-        info.notes.append("nie udalo sie odczytac spisu tresci plyty - "
-                          "program nie wie, czy sa na niej sciezki audio"
-                          + powod)
+        info.notes.append(_t("no_toc") + powod)
     if info.present and not info.iso:
-        info.notes.append("brak opisu wolumenu ISO 9660 - obraz powstanie, "
-                          "ale system plikow moze byc inny niz spodziewany")
+        info.notes.append(_t("no_iso"))
     return info
 
 
@@ -589,13 +720,9 @@ def read_to_iso(device: str, path: str, progress=None,
     """
     info = info or probe(device)
     if info.audio_only:
-        raise OpticalError(
-            f"plyta ma same sciezki audio ({info.audio_tracks}) - do pliku "
-            ".iso nie da sie jej zgrac. Naped odmawia czytania muzyki jak "
-            "danych, wiec zgrywanie mieliloby godzinami i dalo plik bez "
-            "zadnej wartosci")
+        raise OpticalError(_t("err_audio", count=info.audio_tracks))
     if not info.readable:
-        raise OpticalError("w napedzie nie ma plyty z danymi")
+        raise OpticalError(_t("err_no_disc"))
 
     raport = ReadReport(device=device, path=os.path.abspath(path),
                         sectors=info.sectors, info=info)
@@ -616,9 +743,7 @@ def read_to_iso(device: str, path: str, progress=None,
                 if len(raport.bad) >= POCZATKOWE_BLEDY \
                         and len(raport.bad) == numer + ile:
                     raise OpticalError(
-                        f"naped nie oddal ani jednego z pierwszych "
-                        f"{len(raport.bad)} sektorow - to nie wyglada na "
-                        "plyte z danymi w formacie, ktory umiemy czytac")
+                        _t("err_nothing", count=len(raport.bad)))
                 wynik.write(dane)
                 numer += ile
                 raport.done = numer
@@ -676,69 +801,67 @@ def opis_raportu(raport: ReadReport) -> str:
     pochodzi, ile sektorow odzyskano i ktorych nie.
     """
     info = raport.info or DiscInfo()
-    wiersze = ["RetroZachar - Jazwiec - raport ze zgrywania plyty",
-               "=" * 62, ""]
+    wiersze = [_t("r_title"), "=" * 62, ""]
     szer = 26
 
     def pole(etykieta: str, wartosc) -> None:
         wiersze.append(f"{etykieta:<{szer}}{wartosc}")
 
-    pole("Data:", time.strftime("%Y-%m-%d %H:%M:%S"))
-    pole("Naped:", raport.device)
+    pole(_t("r_date"), time.strftime("%Y-%m-%d %H:%M:%S"))
+    pole(_t("r_drive"), raport.device)
     if info.label:
-        pole("Etykieta plyty:", info.label)
+        pole(_t("r_label"), info.label)
     if info.system_id:
-        pole("System:", info.system_id)
-    pole("Obraz:", raport.path)
-    pole("Sektorow:", f"{raport.done} z {raport.sectors}")
-    pole("Rozmiar:", f"{raport.done * SEKTOR} B "
-                     f"({raport.done * SEKTOR / 1048576:.0f} MB)")
+        pole(_t("r_system"), info.system_id)
+    pole(_t("r_image"), raport.path)
+    pole(_t("r_sectors"), f"{raport.done} / {raport.sectors}")
+    pole(_t("r_size"), f"{raport.done * SEKTOR} B "
+                       f"({raport.done * SEKTOR / 1048576:.0f} MB)")
     if info.data_tracks or info.audio_tracks:
-        pole("Sciezki:", f"{info.data_tracks} z danymi, "
-                         f"{info.audio_tracks} audio")
-    pole("Czas:", f"{raport.seconds:.0f} s"
+        pole(_t("r_tracks"), _t("tracks", data=info.data_tracks,
+                                audio=info.audio_tracks))
+    pole(_t("r_time"), f"{raport.seconds:.0f} s"
                   + (f"   ({raport.done * SEKTOR / 1048576 / raport.seconds:.1f}"
                      " MB/s)" if raport.seconds > 0 else ""))
-    pole("Sektorow nieczytelnych:", len(raport.bad))
+    pole(_t("r_bad"), len(raport.bad))
 
     if raport.bad:
-        wiersze += ["", "Numery nieczytelnych sektorow:"]
+        wiersze += ["", _t("r_bad_list")]
         pokazane = raport.bad[:120]
         for i in range(0, len(pokazane), 10):
             wiersze.append("  " + " ".join(f"{n:>7}" for n in pokazane[i:i + 10]))
         if len(raport.bad) > len(pokazane):
-            wiersze.append(f"  ... i {len(raport.bad) - len(pokazane)} dalszych")
+            wiersze.append(_t("r_more",
+                              count=len(raport.bad) - len(pokazane)))
 
     if info.notes:
-        wiersze += ["", "Uwagi:"]
+        wiersze += ["", _t("r_notes")]
         wiersze += [f"  {u}" for u in info.notes]
 
-    wiersze += ["", "-" * 62, "Rozpoznanie:"]
+    wiersze += ["", "-" * 62, _t("r_diagnosis")]
     if raport.cancelled:
-        wiersze.append("Zgrywanie przerwane - obraz jest niepelny.")
+        wiersze.append(_t("d_cancelled"))
     elif raport.complete:
-        wiersze.append("Plyta zgrana w calosci.")
+        wiersze.append(_t("d_complete"))
     else:
-        wiersze.append(
-            f"Nie udalo sie odczytac {len(raport.bad)} sektorow. Miejsca "
-            "te sa w obrazie wypelnione zerami,\na reszta plyty zostala "
-            "odzyskana. Warto sprobowac ponownie po wyczyszczeniu plyty.")
+        wiersze.append(_t("d_bad", count=len(raport.bad)))
     return "\n".join(wiersze)
 
 
 def opis_plyty(info: DiscInfo) -> str:
     """Czytelny opis do okna i do wiersza polecen."""
     if info.tray_open:
-        return "szuflada otwarta"
+        return _t("tray_open")
     if not info.present:
-        return "brak plyty w napedzie"
+        return _t("no_disc")
     czesci = []
     if info.label:
         czesci.append(f'"{info.label}"')
-    czesci.append(f"{info.size / 1048576:.0f} MB ({info.sectors} sektorow)")
+    czesci.append(_t("size", mb=f"{info.size / 1048576:.0f}",
+                     count=info.sectors))
     if info.data_tracks or info.audio_tracks:
-        czesci.append(f"sciezki: {info.data_tracks} z danymi, "
-                      f"{info.audio_tracks} audio")
+        czesci.append(_t("tracks", data=info.data_tracks,
+                         audio=info.audio_tracks))
     if info.system_id:
         czesci.append(info.system_id)
     return "  |  ".join(czesci)
@@ -818,7 +941,9 @@ def _postep(raport: ReadReport) -> bool:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="optical", description="Zgrywanie plyt CD i DVD do pliku .iso.")
+        prog="optical", description="Zgrywanie plyt CD do pliku .iso.")
+    parser.add_argument("--lang", choices=sorted(_T), default=_lang,
+                        help="jezyk komunikatow / message language")
     pod = parser.add_subparsers(dest="cmd", required=True)
     pod.add_parser("list")
     p = pod.add_parser("probe")
@@ -834,12 +959,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--chunk", type=int, default=PORCJA,
                    help=f"sektorow na jeden odczyt (domyslnie {PORCJA})")
     arg = parser.parse_args(argv)
+    set_language(arg.lang)
 
     try:
         if arg.cmd == "list":
             napedy = list_drives()
             if not napedy:
-                print("nie znaleziono napedow optycznych")
+                print(_t("cli_no_drives"))
                 return 1
             for naped in napedy:
                 print(naped)
@@ -861,10 +987,10 @@ def main(argv: list[str] | None = None) -> int:
                     _sciezki_plyty(uchwyt, info)
                 finally:
                     os.close(uchwyt)
-            print(f"sciezki z danymi: {info.data_tracks}")
-            print(f"sciezki audio:    {info.audio_tracks}")
+            print(_t("cli_tracks_data", count=info.data_tracks))
+            print(_t("cli_tracks_audio", count=info.audio_tracks))
             if not info.data_tracks and not info.audio_tracks:
-                print("spisu tresci nie udalo sie odczytac"
+                print(_t("cli_no_toc")
                       + (f" ({opis_bledu(_ostatni_blad)})"
                          if _ostatni_blad else ""))
                 return 1
@@ -873,7 +999,7 @@ def main(argv: list[str] | None = None) -> int:
             info = probe(arg.device)
             print(opis_plyty(info))
             for uwaga in info.notes:
-                print("  uwaga:", uwaga)
+                print(_t("cli_note"), uwaga)
             return 0 if info.readable else 1
         try:
             raport = read_to_iso(arg.device, arg.plik, progress=_postep,
@@ -882,7 +1008,7 @@ def main(argv: list[str] | None = None) -> int:
             # Ctrl+C przy zgrywaniu plyty to normalna droga wyjscia, a nie
             # awaria - slad wyjatku tylko zaciemnia to, co juz zgrane.
             print()
-            print("przerwano", file=sys.stderr)
+            print(_t("cli_cancelled"), file=sys.stderr)
             return 1
         print()
         print(opis_raportu(raport))

@@ -35,6 +35,16 @@ def opis_wolumenu(sektorow: int, etykieta: str = "TESTOWA",
 
 
 class PlytaTestowa(PrzypadekZKatalogiem):
+    """
+    Wspolna baza. Jezyk ustawiamy wprost, bo domyslny zmienil sie na
+    angielski wraz z wydaniem publicznym - test, ktory zaklada jakikolwiek
+    domyslny, pada przy nastepnej takiej zmianie.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(optical.set_language, optical._lang)
+        optical.set_language("pl")
 
     def plyta(self, sektorow: int = 100, iso: bool = True,
               etykieta: str = "TESTOWA", blokow_w_opisie: int | None = None,
@@ -242,9 +252,13 @@ class SpisTresciWindows(unittest.TestCase):
         przyczyne. Przy zglaszaniu usterek z cudzego komputera to roznica
         miedzy zgadywaniem a diagnoza.
         """
+        optical.set_language("pl")
         self.assertIn("odmowa dostepu", optical.opis_bledu(5))
         self.assertIn("bufor", optical.opis_bledu(122))
         self.assertEqual(optical.opis_bledu(4242), "kod bledu 4242")
+        optical.set_language("en")
+        self.assertIn("access denied", optical.opis_bledu(5))
+        self.assertEqual(optical.opis_bledu(4242), "error code 4242")
 
     def test_bufor_na_pelne_sto_sciezek(self):
         """
@@ -661,6 +675,36 @@ class WykrywanieNapedow(unittest.TestCase):
     def test_lista_nie_wywraca_sie_bez_napedu(self):
         """Na maszynie bez napedu optycznego ma wyjsc pusta lista."""
         self.assertIsInstance(optical.list_drives(), list)
+
+
+class Tlumaczenia(PlytaTestowa):
+    """Oba jezyki maja mowic to samo, tylko inaczej."""
+
+    def test_te_same_klucze(self):
+        pl, en = optical._T["pl"], optical._T["en"]
+        self.assertEqual(set(pl), set(en))
+
+    def test_te_same_pola_do_wstawienia(self):
+        """Rozjazd pol konczy sie wyjatkiem dopiero przy wyswietlaniu."""
+        import re
+        for klucz, tekst in optical._T["pl"].items():
+            with self.subTest(klucz=klucz):
+                self.assertEqual(
+                    set(re.findall(r"{(\w+)}", tekst)),
+                    set(re.findall(r"{(\w+)}", optical._T["en"][klucz])))
+
+    def test_raport_po_angielsku(self):
+        optical.set_language("en")
+        raport = optical.read_to_iso(self.plyta(sektorow=40),
+                                     self.sciezka("k.iso"))
+        tekst = optical.opis_raportu(raport)
+        self.assertIn("disc reading report", tekst)
+        self.assertIn("The disc was read in full", tekst)
+        self.assertNotIn("Plyta", tekst)
+
+    def test_nieznany_jezyk_cofa_sie_do_angielskiego(self):
+        optical.set_language("klingon")
+        self.assertEqual(optical._lang, "en")
 
 
 if __name__ == "__main__":

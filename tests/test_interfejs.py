@@ -11,9 +11,13 @@ pomijany, zamiast zglaszac blad.
 
 import os
 import re
+import stat
+import sys
 import unittest
 
 from helpers import CzystyStart, PrzypadekZKatalogiem, podstaw_gw
+
+import gwbridge  # po helpers - to on dokłada katalog projektu do sciezki
 
 import languages
 
@@ -41,9 +45,24 @@ class Tlumaczenia(unittest.TestCase):
                 self.assertEqual(_pola(polski),
                                  _pola(languages.TRANSLATIONS["en"][klucz]))
 
-    def test_nieznany_jezyk_cofa_sie_do_polskiego(self):
-        self.assertEqual(languages.translate("de", "button_create"),
-                         languages.TRANSLATIONS["pl"]["button_create"])
+    def test_nieznany_jezyk_cofa_sie_do_domyslnego(self):
+        """
+        Domyslnym jezykiem jest angielski - program trafia do ludzi spoza
+        Polski, wiec pierwszy ekran musi byc dla nich czytelny. Polski
+        wybiera sie z menu i wybor zostaje zapamietany.
+        """
+        self.assertEqual(languages.DEFAULT_LANGUAGE, "en")
+        self.assertEqual(
+            languages.translate("de", "button_create"),
+            languages.TRANSLATIONS[languages.DEFAULT_LANGUAGE]
+            ["button_create"])
+
+    def test_brakujacy_klucz_bierze_sie_z_domyslnego(self):
+        """Niepelne tlumaczenie nie moze zostawiac pustych napisow."""
+        brakujacy = next(
+            (k for k in languages.TRANSLATIONS["pl"]
+             if k not in languages.TRANSLATIONS["en"]), None)
+        self.assertIsNone(brakujacy, "oba jezyki maja ten sam zestaw kluczy")
 
     def test_brakujacy_klucz_nie_wywraca_programu(self):
         self.assertEqual(languages.translate("pl", "klucz-ktorego-nie-ma"),
@@ -126,6 +145,11 @@ class GrupyWyboru(CzystyStart):
                                            512, "usb", "1440")
         usbfloppy.list_drives = lambda: [self.naped]
         self.app = gui_main.RetroZachar()
+        # Jezyk wprost: testy sprawdzaja polskie napisy, a domyslny
+        # jest angielski. Poleganie na domyslnym sprawia, ze zmiana
+        # ustawien wywraca testy, ktore z jezykiem nie maja nic
+        # wspolnego.
+        self.app.set_language("pl")
         self.app.update()
         self.addCleanup(self.app.quit_app)
 
@@ -195,6 +219,7 @@ class ZmianaJezyka(CzystyStart):
     def test_przelaczanie_tam_i_z_powrotem(self):
         import gui_main
         app = gui_main.RetroZachar()
+        app.set_language("pl")
         self.addCleanup(app.quit_app)
         app.update()
         for jezyk in ("en", "pl", "en", "pl"):
@@ -238,6 +263,7 @@ class KreatorKompletu(CzystyStart):
         import gui_main
         import dialogs_diskset
         app = gui_main.RetroZachar()
+        app.set_language("pl")
         self.addCleanup(app.quit_app)
         app.config_data["disksetsrc"] = "/sciezka/do/gry"
         okno = dialogs_diskset.KompletDialog(app)
@@ -249,6 +275,7 @@ class KreatorKompletu(CzystyStart):
         import gui_main
         import dialogs_diskset
         app = gui_main.RetroZachar()
+        app.set_language("pl")
         self.addCleanup(app.quit_app)
         okno = dialogs_diskset.KompletDialog(app)
         self.addCleanup(okno.destroy)
@@ -277,7 +304,35 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
         import gw_samples
         self.probki = gw_samples
         self.app = gui_main.RetroZachar()
+        # Jezyk wprost: testy sprawdzaja polskie napisy, a domyslny
+        # jest angielski. Poleganie na domyslnym sprawia, ze zmiana
+        # ustawien wywraca testy, ktore z jezykiem nie maja nic
+        # wspolnego.
+        self.app.set_language("pl")
         self.addCleanup(self.app.quit_app)
+        self.zamknij_okna_dialogowe()
+
+    def zamknij_okna_dialogowe(self):
+        """
+        Kazde okno pytajace dostaje z gory odpowiedz odmowna.
+
+        Okno napedu pyta w kilku miejscach - o plik, o otwarcie obrazu,
+        o skladanie z poprzednim przejsciem. Pytanie bez podstawionej
+        odpowiedzi nie konczy sie niepowodzeniem testu, tylko zawieszeniem
+        calego zestawu, bo nikt go nie zamknie. Test, ktory tego potrzebuje,
+        podmienia wybrana odpowiedz u siebie.
+        """
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        import tkinter.simpledialog as sd
+        for modul, nazwa, odpowiedz in (
+                (fd, "asksaveasfilename", ""), (fd, "askopenfilename", ""),
+                (fd, "askdirectory", ""), (mb, "askyesno", False),
+                (mb, "askyesnocancel", False), (mb, "showerror", None),
+                (mb, "showwarning", None), (mb, "showinfo", None),
+                (sd, "askstring", None)):
+            self.addCleanup(setattr, modul, nazwa, getattr(modul, nazwa))
+            setattr(modul, nazwa, lambda *a, _w=odpowiedz, **k: _w)
 
     def czekaj(self, warunek, sekundy=20.0):
         import time
@@ -502,6 +557,311 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
         ostatni = mapa.find_withtag("podzialka")[-1]
         self.assertLessEqual(mapa.bbox(ostatni)[2], mapa.winfo_width(),
                              "numer ostatniego cylindra miesci sie w mapie")
+
+    def test_reczne_wskazanie_pliku_gw(self):
+        """
+        Program uruchomiony z Eksploratora nie widzi gw spoza PATH. Wskazanie
+        pliku ma dzialac od razu i zostac zapamietane na nastepny raz.
+        """
+        import tkinter.filedialog as fd
+        import gwbridge
+        podstaw_gw(self, odczyt=self.probki.pelny_odczyt())
+        narzedzie = gwbridge.find_gw()
+        stara = os.environ["PATH"]
+        os.environ["PATH"] = "/nie-ma-takiego-katalogu"
+        self.addCleanup(os.environ.__setitem__, "PATH", stara)
+        self.addCleanup(gwbridge.set_tool_path, None)
+
+        self.app.open_gw_panel()
+        okno = self.app._gw_window
+        self.addCleanup(okno.destroy)
+        # Czekamy na sam komunikat, a nie na wynik sprawdzenia: napis
+        # odswieza sie chwile pozniej, w osobnym wywolaniu okna.
+        self.assertTrue(self.czekaj(
+            lambda: "Nie znaleziono" in okno.lbl_device.cget("text")),
+            "okno ma powiedziec, ze nie znalazlo polecenia gw")
+        self.assertEqual(okno.btn_read.cget("state"), "disabled")
+
+        stary_wybor = fd.askopenfilename
+        fd.askopenfilename = lambda **k: narzedzie
+        self.addCleanup(lambda: setattr(fd, "askopenfilename", stary_wybor))
+        okno.wskaz_narzedzie()
+        self.assertTrue(self.czekaj(
+            lambda: okno.btn_read.cget("state") == "normal"),
+            "po wskazaniu pliku urzadzenie ma sie znalezc")
+        self.assertIn("Greaseweazle V4.1", okno.lbl_device.cget("text"))
+        self.assertEqual(self.app.config_data["gwpath"], narzedzie)
+        self.assertEqual(okno.lbl_tool.cget("text"), narzedzie)
+
+        okno.destroy()
+        # Udajemy swiezy start programu: sama pamiec modulu nie wystarczy,
+        # bo ta przetrwa zamkniecie okna i test przechodzilby nawet wtedy,
+        # gdyby okno w ogole nie zagladalo do ustawien.
+        gwbridge.set_tool_path(None)
+        self.assertIsNone(gwbridge.find_gw())
+        self.app.open_gw_panel()
+        nowe_okno = self.app._gw_window
+        self.addCleanup(nowe_okno.destroy)
+        self.assertTrue(self.czekaj(
+            lambda: nowe_okno.btn_read.cget("state") == "normal"),
+            "sciezka ma byc wczytana z ustawien przy otwarciu okna")
+
+    def test_liczba_prob_z_pola(self):
+        """
+        Pole z liczba prob jest zmienna Tkintera, a odczyt idzie w watku
+        w tle. Siegniecie po nie stamtad konczy sie bledem "main thread is
+        not in main loop" i przepadnieciem calej pracy.
+        """
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        argumenty = podstaw_gw(self, odczyt=self.probki.pelny_odczyt())
+        # Po udanym odczycie okno pyta, czy otworzyc obraz. Bez podstawionej
+        # odpowiedzi test staje na oknie, ktorego nikt nie zamknie.
+        stare = fd.asksaveasfilename, mb.askyesno
+        fd.asksaveasfilename = lambda **k: self.sciezka("proby.img")
+        mb.askyesno = lambda *a, **k: False
+        self.addCleanup(lambda: setattr(fd, "asksaveasfilename", stare[0]))
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare[1]))
+
+        okno = self.otworz()
+        okno.var_retries.set("8")
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.assertIsNone(okno._wynik[1], "praca nie moze sie wywrocic")
+        with open(argumenty) as fh:
+            wywolanie = fh.read().splitlines()
+        self.assertEqual(wywolanie[wywolanie.index("--retries") + 1], "8")
+        self.assertEqual(self.app.config_data["gwretries"], 8)
+
+    def test_liczba_prob_sprowadzana_do_zakresu(self):
+        podstaw_gw(self)
+        okno = self.otworz()
+        for wpisane, oczekiwane in (("0", 1), ("999", gwbridge.MAX_RETRIES),
+                                    ("", gwbridge.DEFAULT_RETRIES),
+                                    ("piec", gwbridge.DEFAULT_RETRIES),
+                                    ("6", 6)):
+            with self.subTest(wpisane=wpisane):
+                okno.var_retries.set(wpisane)
+                self.assertEqual(okno.liczba_prob(), oczekiwane)
+
+    def dwa_przejscia(self, pierwsze_brak, drugie_brak, format_="amiga880"):
+        """Atrapa gw gubiaca inna sciezke w kazdym przejsciu."""
+        import textwrap
+        nosnik = gwbridge.NOSNIKI[format_]
+        licznik = self.sciezka("licznik")
+        katalog = os.path.join(self.katalog, "atrapa-merge")
+        os.makedirs(katalog, exist_ok=True)
+        plik = os.path.join(katalog, "gw")
+        with open(plik, "w") as fh:
+            fh.write(textwrap.dedent(f"""\
+                #!{sys.executable}
+                import sys, os
+                if sys.argv[1] == "info":
+                    print({self.probki.GW_INFO_URZADZENIE!r}, end="")
+                    sys.exit(0)
+                n = 0
+                if os.path.exists({licznik!r}):
+                    n = int(open({licznik!r}).read())
+                open({licznik!r}, "w").write(str(n + 1))
+                znane = (".img", ".ima", ".adf", ".st", ".msa", ".d64")
+                if not sys.argv[-1].lower().endswith(znane):
+                    print("** FATAL ERROR:")
+                    print("%s: Unrecognised file suffix" % sys.argv[-1])
+                    sys.exit(1)
+                wzor = b"-=[BAD SECTOR]=-" * 32
+                dane = bytearray(b"D" * {nosnik.rozmiar})
+                brak = {pierwsze_brak!r} if n == 0 else {drugie_brak!r}
+                for sciezka in brak:
+                    for s in range(sciezka * {nosnik.sektory},
+                                   (sciezka + 1) * {nosnik.sektory}):
+                        dane[s * 512:(s + 1) * 512] = wzor
+                open(sys.argv[-1], "wb").write(bytes(dane))
+                print("Reading c=0-79:h=0-1 revs=1.1")
+            """))
+        os.chmod(plik, os.stat(plik).st_mode | stat.S_IEXEC)
+        # Przez ustawienia, bo okno wczytuje sciezke stamtad przy kazdym
+        # otwarciu - ustawiona wprost zostalaby nadpisana.
+        self.app.config_data["gwpath"] = plik
+        self.addCleanup(gwbridge.set_tool_path, None)
+
+    def test_skladanie_z_kilku_przejsc(self):
+        """
+        Pierwsze przejscie gubi jedna sciezke, drugie inna. Razem daja
+        komplet - tak jak przy dyskietce Titan, gdzie cztery odczyty
+        roznily sie jednym sektorem.
+        """
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        self.dwa_przejscia([53], [70])
+        cel = self.sciezka("Titan.adf")
+        stare = fd.asksaveasfilename, mb.askyesno, mb.askyesnocancel
+        fd.asksaveasfilename = lambda **k: cel
+        mb.askyesno = lambda *a, **k: False
+        mb.askyesnocancel = lambda *a, **k: True      # dolozyc brakujace
+        self.addCleanup(lambda: setattr(fd, "asksaveasfilename", stare[0]))
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare[1]))
+        self.addCleanup(lambda: setattr(mb, "askyesnocancel", stare[2]))
+
+        okno = self.otworz()
+        okno.var_format.set("amiga880")
+        self.app.update()
+
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        with open(cel, "rb") as fh:
+            brak = gwbridge.missing_sectors(fh.read(), 512)
+        self.assertEqual(len(brak), 11, "pierwsze przejscie gubi sciezke")
+        self.assertIn("1749 z 1760", okno.lbl_zebrane.cget("text"))
+        self.assertEqual(okno.mapa_zebrane._stany[(26, 1)], "bad")
+
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        with open(cel, "rb") as fh:
+            self.assertEqual(gwbridge.missing_sectors(fh.read(), 512), set())
+        self.assertEqual(okno.raport.merge.recovered, 11)
+        self.assertIn("1760 z 1760", okno.lbl_zebrane.cget("text"))
+        self.assertEqual(okno.mapa_zebrane._stany[(26, 1)], "ok")
+
+        raporty = sorted(p for p in os.listdir(self.katalog)
+                         if p.startswith("Titan-przejscie-"))
+        self.assertEqual(raporty, ["Titan-przejscie-1.txt",
+                                   "Titan-przejscie-2.txt"])
+
+    def test_zebrane_dane_znikaja_przy_nowej_dyskietce(self):
+        """
+        Zgloszenie z uzytkowania: dolna mapa zostawala z poprzedniej
+        dyskietki i pokazywala komplet, gdy nowy odczyt byl w polowie.
+        """
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        self.dwa_przejscia([], [])          # oba przejscia bez dziur
+        stare = fd.asksaveasfilename, mb.askyesno, mb.askyesnocancel
+        mb.askyesno = lambda *a, **k: False
+        mb.askyesnocancel = lambda *a, **k: True
+        self.addCleanup(lambda: setattr(fd, "asksaveasfilename", stare[0]))
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare[1]))
+        self.addCleanup(lambda: setattr(mb, "askyesnocancel", stare[2]))
+
+        okno = self.otworz()
+        okno.var_format.set("amiga880")
+        self.app.update()
+
+        fd.asksaveasfilename = lambda **k: self.sciezka("pierwsza.adf")
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.assertIn("1760 z 1760", okno.lbl_zebrane.cget("text"))
+        self.assertEqual(okno.mapa_zebrane._stany[(0, 0)], "ok")
+
+        fd.asksaveasfilename = lambda **k: self.sciezka("druga.adf")
+        okno.odczyt()
+        self.app.update()
+        self.assertNotIn("1760", okno.lbl_zebrane.cget("text"),
+                         "licznik nie moze opisywac poprzedniej dyskietki")
+        self.assertNotIn("ok", set(okno.mapa_zebrane._stany.values()),
+                         "mapa zebranych danych ma zaczac od pustej")
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+
+    def test_dokladanie_pokazuje_stan_od_razu(self):
+        """Przy dokladaniu dolna mapa ma pokazac, co juz jest w pliku."""
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        self.dwa_przejscia([53], [53])
+        cel = self.sciezka("Titan.adf")
+        stare = fd.asksaveasfilename, mb.askyesno, mb.askyesnocancel
+        fd.asksaveasfilename = lambda **k: cel
+        mb.askyesno = lambda *a, **k: False
+        mb.askyesnocancel = lambda *a, **k: True
+        self.addCleanup(lambda: setattr(fd, "asksaveasfilename", stare[0]))
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare[1]))
+        self.addCleanup(lambda: setattr(mb, "askyesnocancel", stare[2]))
+
+        okno = self.otworz()
+        okno.var_format.set("amiga880")
+        self.app.update()
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+
+        okno.odczyt()
+        self.app.update()
+        self.assertEqual(okno.mapa_zebrane._stany[(26, 1)], "bad",
+                         "od razu widac, czego brakuje w pliku")
+        self.assertIn("1749 z 1760", okno.lbl_zebrane.cget("text"))
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+
+    def test_nadpisanie_zamiast_skladania(self):
+        """Odpowiedz "nie" ma nadpisac plik, a nie dokladac do niego."""
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        self.dwa_przejscia([53], [70])
+        cel = self.sciezka("Nadpisz.adf")
+        stare = fd.asksaveasfilename, mb.askyesno, mb.askyesnocancel
+        fd.asksaveasfilename = lambda **k: cel
+        mb.askyesno = lambda *a, **k: False
+        mb.askyesnocancel = lambda *a, **k: False
+        self.addCleanup(lambda: setattr(fd, "asksaveasfilename", stare[0]))
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare[1]))
+        self.addCleanup(lambda: setattr(mb, "askyesnocancel", stare[2]))
+
+        okno = self.otworz()
+        okno.var_format.set("amiga880")
+        self.app.update()
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.assertIsNone(okno.raport.merge, "nie bylo skladania")
+        with open(cel, "rb") as fh:
+            brak = gwbridge.missing_sectors(fh.read(), 512)
+        self.assertEqual(sorted(brak)[0], 70 * 11,
+                         "w pliku sa dziury z drugiego przejscia")
+
+    def test_plik_innego_nosnika_nie_jest_zestawiany(self):
+        """
+        Licznik zebranych danych potrafil pokazac komplet dla pliku
+        o zupelnie innym rozmiarze.
+        """
+        podstaw_gw(self)
+        okno = self.otworz()
+        okno.var_format.set("amiga880")
+        self.app.update()
+        obcy = self.sciezka("pecetowy.img")
+        with open(obcy, "wb") as fh:
+            fh.write(bytes(1474560))
+        okno._pokaz_zebrane(obcy, None)
+        self.assertIn("innego nosnika", okno.lbl_zebrane.cget("text"))
+
+    def test_okno_pamieta_wlasny_katalog(self):
+        """
+        Zgloszenie z uzytkowania: okno wyboru zawsze wracalo do katalogu
+        z okna glownego, a nie tam, gdzie ostatnio zgrywano dyskietki.
+        """
+        import tkinter.filedialog as fd
+        podstaw_gw(self, odczyt=self.probki.pelny_odczyt())
+        katalog = self.sciezka("Zgrywy Amiga")
+        os.makedirs(katalog)
+        self.app.config_data["outdir"] = self.katalog
+        podane = []
+        fd.asksaveasfilename = lambda **k: (podane.append(k["initialdir"])
+                                            or os.path.join(katalog, "a.img"))
+
+        okno = self.otworz()
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.assertEqual(podane[0], self.katalog,
+                         "pierwszy raz startuje od katalogu na obrazy")
+        self.assertEqual(self.app.config_data["gwdir"], katalog)
+
+        okno.odczyt()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.assertEqual(podane[1], katalog,
+                         "drugi raz od miejsca ostatniego zgrywania")
+
+        okno.destroy()
+        self.app.open_gw_panel()
+        nowe_okno = self.app._gw_window
+        self.addCleanup(nowe_okno.destroy)
+        self.assertEqual(nowe_okno._katalog_startowy(), katalog,
+                         "po ponownym otwarciu okna tez")
 
     def test_zakladki_rodzin_nosnikow(self):
         """
@@ -836,7 +1196,7 @@ class RaportBezObrazu(CzystyStart):
 class PodzialRaportuNaBloki(unittest.TestCase):
 
     def test_raport_z_mapa(self):
-        import dialogs_gw
+        import styles as dialogs_gw
         linie = ["A", "", "Cyl-> 0", "H. S: 0", "0. 0: .", "1. 0: X",
                  "", "Rozpoznanie:"]
         bloki = dialogs_gw._podziel_na_bloki(linie)
@@ -845,9 +1205,501 @@ class PodzialRaportuNaBloki(unittest.TestCase):
                                        "1. 0: X"])
 
     def test_raport_bez_mapy(self):
-        import dialogs_gw
+        import styles as dialogs_gw
         bloki = dialogs_gw._podziel_na_bloki(["A", "B"])
         self.assertEqual(bloki, [(["A", "B"], False)])
+
+
+@unittest.skipUnless(_okno_dostepne(), "brak serwera graficznego")
+class ObrazDyskuWOknie(PrzypadekZKatalogiem):
+    """
+    Obraz dysku twardego ma sie otwierac tak jak dyskietka, tylko bez
+    mozliwosci zapisu.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import gui_main
+        self.app = gui_main.RetroZachar()
+        # Jezyk wprost: testy sprawdzaja polskie napisy, a domyslny
+        # jest angielski. Poleganie na domyslnym sprawia, ze zmiana
+        # ustawien wywraca testy, ktore z jezykiem nie maja nic
+        # wspolnego.
+        self.app.set_language("pl")
+        self.addCleanup(self.app.quit_app)
+        # Okno wyboru partycji jest modalne: bez podstawionej odpowiedzi
+        # test nie padnie, tylko zawiesi caly zestaw. Podmieniamy to, po co
+        # siega samo okno, a nie klase w module obok.
+        self.pytania = []
+        self.addCleanup(setattr, gui_main, "wybierz_partycje",
+                        gui_main.wybierz_partycje)
+        self.odpowiedz = None
+        gui_main.wybierz_partycje = self._wybor
+        # Okno bledu jest rownie modalne jak okno wyboru. Zamiast zawieszac
+        # zestaw, blad ma przerwac test z czytelna trescia.
+        self.app._error = self._blad
+        self._przejmij_komunikaty()
+
+    def _przejmij_komunikaty(self):
+        """
+        Kazde okno komunikatu dostaje z gory odpowiedz.
+
+        Nie tylko wygoda: nieudany zapis pokazuje okno bledu, a test bez
+        podstawionej odpowiedzi nie padnie, tylko zawiesi caly zestaw.
+        Zawieszony test niczego nie dowodzi.
+        """
+        import tkinter.messagebox as mb
+        for nazwa, odpowiedz in (("showerror", None), ("showwarning", None),
+                                 ("showinfo", None), ("askyesno", False),
+                                 ("askyesnocancel", False)):
+            self.addCleanup(setattr, mb, nazwa, getattr(mb, nazwa))
+            setattr(mb, nazwa, lambda *a, _w=odpowiedz, **k: _w)
+
+    def _blad(self, wyjatek):
+        raise AssertionError(f"okno pokazalo blad: {wyjatek}")
+
+    def _wybor(self, master, partycje, biezaca=None):
+        self.pytania.append([p.index for p in partycje])
+        return self.odpowiedz
+
+    def dysk(self, partycji: int = 1) -> str:
+        from test_fat16 import BudowniczyFat, wpis_partycji
+        sciezka = self.sciezka("dysk.img")
+        pierwsza = BudowniczyFat(etykieta="DOS").plik("CONFIG.SYS", b"FILES=30")
+        mbr = bytearray(512)
+        mbr[446:462] = wpis_partycji(0x06, 63, pierwsza.sektorow)
+        mbr[510:512] = b"\x55\xaa"
+        tresc = bytes(mbr) + bytes(62 * 512) + pierwsza.zbuduj()
+        if partycji > 1:
+            druga = BudowniczyFat(etykieta="DANE").plik("B.TXT", b"bbb")
+            start2 = 63 + pierwsza.sektorow + 63
+            mbr[462:478] = wpis_partycji(0x06, start2, druga.sektorow)
+            mbr[510:512] = b"\x55\xaa"
+            tresc = (bytes(mbr) + bytes(62 * 512) + pierwsza.zbuduj()
+                     + bytes(63 * 512) + druga.zbuduj())
+        with open(sciezka, "wb") as fh:
+            fh.write(tresc)
+        return sciezka
+
+    def test_otwiera_sie_jak_dyskietka(self):
+        from pathlib import Path
+        self.app._open_path(Path(self.dysk()))
+        self.app.update()
+        self.assertIsNotNone(self.app.image)
+        self.assertIn("FAT16", self.app.image.format_name)
+        self.assertEqual([w.name for w in self.app.image.listdir("/")],
+                         ["CONFIG.SYS"])
+
+    def test_przyciski_zapisu_sa_zablokowane(self):
+        """
+        Obraz dysku jest tylko do odczytu i okno musi to wiedziec. Wczesniej
+        zakladalo, ze kazdy otwarty plik da sie zmieniac, wiec przyciski
+        byly czynne, a klikniecie konczylo sie bledem.
+        """
+        from pathlib import Path
+        self.app._open_path(Path(self.dysk()))
+        self.app.update()
+        self.assertTrue(self.app.image_readonly)
+        czynne = [w for w in getattr(self.app, "_writable_list", [])
+                  if str(w.cget("state")) == "normal"]
+        self.assertEqual(czynne, [], "zaden przycisk zapisu nie moze dzialac")
+
+    def test_litera_napedu_i_opis(self):
+        from pathlib import Path
+        self.app._open_path(Path(self.dysk()))
+        self.app.update()
+        self.assertTrue(self.app.var_location.get().startswith("C:"))
+        self.assertIn("Plik:", self.app.var_filepath.get())
+
+    def test_odblokowanie_zapisu(self):
+        """
+        Obraz dysku otwiera sie tylko do odczytu; zapis wymaga wyraznej
+        zgody. Pomylka kosztuje tu caly system plikow maszyny, wiec nie
+        moze byc skutkiem klikniecia nie tam.
+        """
+        from pathlib import Path
+        import tkinter.messagebox as mb
+        sciezka = self.dysk()
+        pytania = []
+        stare = mb.askyesno
+        mb.askyesno = lambda *a, **k: pytania.append(a) or False
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare))
+
+        self.app._open_path(Path(sciezka))
+        self.app.update()
+        self.assertTrue(self.app.image_readonly)
+
+        self.app.unlock_disk()
+        self.app.update()
+        self.assertEqual(len(pytania), 1, "program ma ostrzec przed zapisem")
+        self.assertIn("maszyne", pytania[0][1], "ostrzezenie o maszynie")
+        self.assertTrue(self.app.image_readonly, "odmowa nic nie zmienia")
+
+        mb.askyesno = lambda *a, **k: True
+        self.app.unlock_disk()
+        self.app.update()
+        self.assertFalse(self.app.image_readonly)
+        czynne = [w for w in getattr(self.app, "_writable_list", [])
+                  if str(w.cget("state")) == "normal"]
+        self.assertTrue(czynne, "po odblokowaniu przyciski maja dzialac")
+
+    def test_zapis_przez_okno(self):
+        """Wniesienie pliku przyciskiem konczy sie zapisem w obrazie."""
+        from pathlib import Path
+        import tkinter.filedialog as fd
+        import tkinter.messagebox as mb
+        sciezka = self.dysk()
+        stare = mb.askyesno, fd.askopenfilenames, mb.showinfo
+        mb.askyesno = lambda *a, **k: True
+        mb.showinfo = lambda *a, **k: None
+        self.addCleanup(lambda: setattr(mb, "askyesno", stare[0]))
+        self.addCleanup(lambda: setattr(fd, "askopenfilenames", stare[1]))
+        self.addCleanup(lambda: setattr(mb, "showinfo", stare[2]))
+
+        zrodlo = self.sciezka("NOTATKA.TXT")
+        with open(zrodlo, "wb") as fh:
+            fh.write(b"zapisane z Jazwca")
+        fd.askopenfilenames = lambda **k: (zrodlo,)
+
+        self.app._open_path(Path(sciezka))
+        self.app.unlock_disk()
+        self.app.update()
+        self.app.add_files()
+        self.app.update()
+        self.assertIn("NOTATKA.TXT",
+                      [w.name for w in self.app.image.listdir("/")])
+        self.assertEqual(self.app.image.read_file("/NOTATKA.TXT"),
+                         b"zapisane z Jazwca")
+
+    def test_okno_postepu_przy_wielu_plikach(self):
+        """
+        Zgloszenie z uzytkowania: przy kopiowaniu wielu plikow program nie
+        pokazywal niczego i wygladal na zawieszony.
+        """
+        from pathlib import Path
+        import tkinter.filedialog as fd
+        import dialogs_files
+        widziane = []
+        stare = dialogs_files.PostepKopiowania.krok
+
+        def krok(jaki, opis=""):
+            widziane.append((jaki.zrobione, jaki.ile))
+            return stare(jaki, opis)
+
+        dialogs_files.PostepKopiowania.krok = krok
+        self.addCleanup(setattr, dialogs_files.PostepKopiowania, "krok",
+                        stare)
+
+        pliki = []
+        for numer in range(12):
+            plik = self.sciezka(f"PLIK{numer:02d}.DAT")
+            with open(plik, "wb") as fh:
+                fh.write(bytes(1000))
+            pliki.append(plik)
+        stary_wybor = fd.askopenfilenames
+        fd.askopenfilenames = lambda **k: tuple(pliki)
+        self.addCleanup(setattr, fd, "askopenfilenames", stary_wybor)
+
+        # Osłona zestawu odpowiada odmownie na kazde pytanie, a tu
+        # odblokowanie zapisu musi dojsc do skutku.
+        import tkinter.messagebox as mb
+        self.addCleanup(setattr, mb, "askyesno", mb.askyesno)
+        mb.askyesno = lambda *a, **k: True
+        self.app._open_path(Path(self.dysk()))
+        self.app.unlock_disk()
+        self.app.update()
+        self.app.add_files()
+        self.app.update()
+        self.assertEqual(len(widziane), 12, "kazdy plik zglasza postep")
+        self.assertEqual(widziane[0][1], 12, "pasek zna liczbe pozycji")
+        self.assertEqual(
+            len([w for w in self.app.image.listdir("/")
+                 if w.name.startswith("PLIK")]), 12)
+
+    def test_kilka_plikow_bez_okna_postepu(self):
+        """Przy kilku plikach okno tylko by mignelo."""
+        from pathlib import Path
+        import tkinter.filedialog as fd
+        import dialogs_files
+        powstalo = []
+        stare = dialogs_files.PostepKopiowania.__init__
+
+        def init(jaki, master, ile=None):
+            powstalo.append(ile)
+            stare(jaki, master, ile)
+
+        dialogs_files.PostepKopiowania.__init__ = init
+        self.addCleanup(setattr, dialogs_files.PostepKopiowania, "__init__",
+                        stare)
+        plik = self.sciezka("JEDEN.TXT")
+        with open(plik, "wb") as fh:
+            fh.write(b"x")
+        stary_wybor = fd.askopenfilenames
+        fd.askopenfilenames = lambda **k: (plik,)
+        self.addCleanup(setattr, fd, "askopenfilenames", stary_wybor)
+
+        # Osłona zestawu odpowiada odmownie na kazde pytanie, a tu
+        # odblokowanie zapisu musi dojsc do skutku.
+        import tkinter.messagebox as mb
+        self.addCleanup(setattr, mb, "askyesno", mb.askyesno)
+        mb.askyesno = lambda *a, **k: True
+        self.app._open_path(Path(self.dysk()))
+        self.app.unlock_disk()
+        self.app.update()
+        self.app.add_files()
+        self.app.update()
+        self.assertEqual(powstalo, [], "jeden plik nie potrzebuje okna")
+        self.assertIn("JEDEN.TXT",
+                      [w.name for w in self.app.image.listdir("/")])
+
+    def test_zapis_bez_odblokowania_niemozliwy(self):
+        from pathlib import Path
+        import fat16
+        self.app._open_path(Path(self.dysk()))
+        self.app.update()
+        with self.assertRaises(fat16.Fat16Error):
+            self.app.image.write_file("/X.TXT", b"x")
+
+    def test_wybor_partycji(self):
+        from pathlib import Path
+        self.odpowiedz = 2
+        self.app._open_path(Path(self.dysk(partycji=2)))
+        self.app.update()
+        self.assertEqual(self.pytania, [[1, 2]],
+                         "przy dwoch partycjach okno pyta od razu")
+        self.assertEqual(self.app.image.partition_index, 2)
+        self.assertEqual(self.app.image.get_label(), "DANE")
+        self.assertEqual([w.name for w in self.app.image.listdir("/")],
+                         ["B.TXT"])
+        self.assertTrue(self.app.image_readonly)
+
+    def test_rezygnacja_zostawia_pierwsza(self):
+        from pathlib import Path
+        self.odpowiedz = None
+        self.app._open_path(Path(self.dysk(partycji=2)))
+        self.app.update()
+        self.assertEqual(self.app.image.partition_index, 1)
+        self.assertEqual(self.app.image.get_label(), "DOS")
+
+    def test_jedna_partycja_nie_pyta(self):
+        from pathlib import Path
+        import dialogs_disk
+        pytano = []
+
+        class Atrapa:
+            def __init__(self, *a, **k):
+                pytano.append(True)
+                self.wynik = None
+        stare = dialogs_disk.PartitionDialog
+        dialogs_disk.PartitionDialog = Atrapa
+        self.addCleanup(setattr, dialogs_disk, "PartitionDialog", stare)
+        self.app._open_path(Path(self.dysk()))
+        self.app.update()
+        self.assertEqual(pytano, [], "przy jednej partycji nie ma o co pytac")
+
+
+class WzorcePlikow(unittest.TestCase):
+    """
+    Zgloszenie z uzytkowania: 86Box zapisuje obrazy jako "210MB.VHD",
+    a okno wyboru ich nie pokazywalo. Tkinter pod Linuksem dopasowuje
+    wzorce doslownie, wiec "*.vhd" nie widzi pliku z duzych liter - pod
+    Windowsem ten sam wzorzec dziala i blad nie rzuca sie w oczy.
+    """
+
+    def wzorzec(self, rozszerzenie):
+        import system
+        return system.wzorzec_pliku(rozszerzenie)
+
+    def test_pasuje_bez_wzgledu_na_wielkosc_liter(self):
+        import fnmatch
+        wzorzec = self.wzorzec(".vhd")
+        for nazwa in ("210MB.VHD", "dysk.vhd", "Dysk.Vhd", "obraz.VhD"):
+            with self.subTest(nazwa=nazwa):
+                self.assertTrue(fnmatch.fnmatchcase(nazwa, wzorzec))
+
+    def test_nie_pasuje_do_innych_rozszerzen(self):
+        import fnmatch
+        wzorzec = self.wzorzec(".vhd")
+        for nazwa in ("obraz.img", "plik.txt", "vhd.txt"):
+            with self.subTest(nazwa=nazwa):
+                self.assertFalse(fnmatch.fnmatchcase(nazwa, wzorzec))
+
+    def test_cyfry_i_znaki_zostaja_bez_zmian(self):
+        self.assertEqual(self.wzorzec(".d64"), "*.[dD]64")
+
+    def test_pod_windowsem_postac_prosta(self):
+        """Okno Windowsa traktuje wzorce doslownie i nawiasow nie rozumie."""
+        import system
+        stare = system.os.name
+        system.os.name = "nt"
+        try:
+            self.assertEqual(system.wzorzec_pliku(".vhd"), "*.vhd")
+        finally:
+            system.os.name = stare
+
+    def test_okno_glowne_pokazuje_obrazy_dyskow(self):
+        import engines
+        import system
+        wzorce = system.wzorce_plikow(engines.all_extensions())
+        import fnmatch
+        self.assertTrue(any(fnmatch.fnmatchcase("210MB.VHD", w)
+                            for w in wzorce),
+                        "obraz z 86Boxa ma byc widoczny na liscie")
+
+
+
+@unittest.skipUnless(_okno_dostepne(), "brak serwera graficznego")
+class OknoPlyt(PrzypadekZKatalogiem):
+    """
+    Okno zgrywania plyt. Napedu optycznego w zestawie testow nie ma, wiec
+    podstawiamy plik z obrazem plyty - liczy sie to, co okno z nim zrobi.
+    """
+
+    def setUp(self):
+        super().setUp()
+        import gui_main
+        import optical
+        from test_optical import opis_wolumenu
+        self.optical = optical
+        self.app = gui_main.RetroZachar()
+        # Jezyk wprost: testy sprawdzaja polskie napisy, a domyslny
+        # jest angielski. Poleganie na domyslnym sprawia, ze zmiana
+        # ustawien wywraca testy, ktore z jezykiem nie maja nic
+        # wspolnego.
+        self.app.set_language("pl")
+        self.addCleanup(self.app.quit_app)
+        self._przejmij_komunikaty()
+
+        self.plyta = self.sciezka("sr0")
+        obraz = bytearray(b"D" * 300 * optical.SEKTOR)
+        obraz[16 * optical.SEKTOR:17 * optical.SEKTOR] = opis_wolumenu(
+            300, "WC3_CD4")
+        with open(self.plyta, "wb") as fh:
+            fh.write(bytes(obraz))
+
+        self.addCleanup(setattr, optical, "list_drives", optical.list_drives)
+        optical.list_drives = lambda: [
+            optical.OpticalDrive(self.plyta, "Slimtype eBAU108")]
+        self.sciezki = (1, 0)
+        prawdziwe = optical._sciezki_plyty
+        self.addCleanup(setattr, optical, "_sciezki_plyty", prawdziwe)
+
+        def spis(uchwyt, info):
+            info.data_tracks, info.audio_tracks = self.sciezki
+
+        optical._sciezki_plyty = spis
+
+    def _przejmij_komunikaty(self):
+        import tkinter.messagebox as mb
+        for nazwa, odpowiedz in (("showerror", None), ("showwarning", None),
+                                 ("showinfo", None), ("askyesno", False)):
+            self.addCleanup(setattr, mb, nazwa, getattr(mb, nazwa))
+            setattr(mb, nazwa, lambda *a, _w=odpowiedz, **k: _w)
+
+    def czekaj(self, warunek, sekundy=20.0):
+        import time
+        koniec = time.time() + sekundy
+        while time.time() < koniec:
+            self.app.update()
+            if warunek():
+                return True
+            time.sleep(0.02)
+        return False
+
+    def otworz(self):
+        self.app.open_optical_panel()
+        okno = self.app._optical_window
+        self.addCleanup(okno.destroy)
+        self.app.update()
+        return okno
+
+    def test_naped_na_liscie(self):
+        okno = self.otworz()
+        self.assertEqual(list(okno.drive_buttons), [self.plyta])
+        self.assertEqual(okno.btn_check.cget("state"), "normal")
+        self.assertEqual(okno.btn_read.cget("state"), "disabled",
+                         "przed sprawdzeniem plyty nie ma czego zgrywac")
+
+    def test_sprawdzenie_plyty(self):
+        okno = self.otworz()
+        okno.sprawdz_plyte()
+        self.assertTrue(self.czekaj(lambda: okno.info is not None))
+        self.app.update()
+        self.assertIn("WC3_CD4", okno.lbl_disc.cget("text"))
+        self.assertEqual(okno.btn_read.cget("state"), "normal")
+
+    def test_zgrywanie(self):
+        import tkinter.filedialog as fd
+        cel = self.sciezka("plyta.iso")
+        self.addCleanup(setattr, fd, "asksaveasfilename",
+                        fd.asksaveasfilename)
+        fd.asksaveasfilename = lambda **k: cel
+
+        okno = self.otworz()
+        okno.sprawdz_plyte()
+        self.assertTrue(self.czekaj(lambda: okno.info is not None))
+        okno.zgraj()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.app.update()
+        self.assertTrue(okno.raport.complete)
+        self.assertEqual(os.path.getsize(cel), 300 * self.optical.SEKTOR)
+        with open(self.plyta, "rb") as a, open(cel, "rb") as b:
+            self.assertEqual(a.read(), b.read())
+        self.assertIn("Rozpoznanie", okno.widok.tekst())
+        self.assertEqual(okno.btn_save.cget("state"), "normal")
+
+    def test_plyta_audio_nie_da_sie_zgrac(self):
+        """
+        Plyta z sama muzyka: okno ma powiedziec dlaczego i nie pozwolic
+        zaczac, zamiast mielic kilka minut i dac bezwartosciowy plik.
+        """
+        self.sciezki = (0, 11)
+        okno = self.otworz()
+        okno.sprawdz_plyte()
+        self.assertTrue(self.czekaj(lambda: okno.info is not None))
+        self.app.update()
+        self.assertTrue(okno.info.audio_only)
+        self.assertEqual(okno.btn_read.cget("state"), "disabled")
+        self.assertIn("muzyka", okno.lbl_notes.cget("text"))
+
+    def test_przerwanie(self):
+        import tkinter.filedialog as fd
+        self.addCleanup(setattr, fd, "asksaveasfilename",
+                        fd.asksaveasfilename)
+        fd.asksaveasfilename = lambda **k: self.sciezka("p.iso")
+        okno = self.otworz()
+        okno.sprawdz_plyte()
+        self.assertTrue(self.czekaj(lambda: okno.info is not None))
+        prawdziwy = self.optical._czytaj
+        self.addCleanup(setattr, self.optical, "_czytaj", prawdziwy)
+
+        def wolno(uchwyt, od, ile):
+            # Plyta w tescie ma dwie porcje i bez spowolnienia odczyt
+            # konczy sie, zanim test zdazy przerwac - test bylby wtedy
+            # nie tyle laskawy, co losowy.
+            import time
+            time.sleep(0.3)
+            return prawdziwy(uchwyt, od, ile)
+
+        self.optical._czytaj = wolno
+        okno.zgraj()
+        self.assertTrue(self.czekaj(
+            lambda: okno._biezacy is not None and okno._biezacy.done > 0),
+            "zgrywanie ma ruszyc, zanim je przerwiemy")
+        okno.przerwij()
+        self.assertTrue(self.czekaj(lambda: okno.worker is None))
+        self.assertTrue(okno.raport.cancelled)
+        self.assertFalse(okno.raport.complete)
+
+    def test_wybor_napedu_zapamietany(self):
+        okno = self.otworz()
+        okno.sprawdz_plyte()
+        self.assertTrue(self.czekaj(lambda: okno.info is not None))
+        self.assertEqual(self.app.config_data["cddrive"], self.plyta)
+        okno.var_retries.set("7")
+        okno.sprawdz_plyte()
+        self.assertTrue(self.czekaj(lambda: okno.info is not None))
+        self.assertEqual(self.app.config_data["cdretries"], 7)
 
 
 if __name__ == "__main__":

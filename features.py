@@ -59,7 +59,7 @@ except ImportError:
     wybierz_partycje = None
     DISKS_AVAILABLE = False
 
-# Zgrywanie plyt CD i DVD: modul i jego okno.
+# Zgrywanie plyt CD: modul i jego okno.
 try:
     import optical
     from dialogs_optical import OpticalDialog

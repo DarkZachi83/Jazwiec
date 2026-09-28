@@ -724,5 +724,225 @@ class MapaSektorowWRaporcie(unittest.TestCase):
         self.assertEqual(mapa[-1], "1. 8: " + "." * 39 + "X")
 
 
+
+class WskazanaSciezkaDoGw(PrzypadekZKatalogiem):
+    """
+    Pod Windowsem narzedzia Greaseweazle rozpakowuje sie do dowolnego
+    katalogu. Jesli nie trafi on do PATH, polecenie dziala tylko w tym
+    folderze - a program uruchomiony z Eksploratora ma inny katalog roboczy
+    i nie widzi go wcale. Zgloszone z prawdziwej instalacji.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.addCleanup(gwbridge.set_tool_path, None)
+
+    def test_wskazana_ma_pierwszenstwo(self):
+        atrapa = os.path.join(self.katalog, "gw-gdzie-indziej")
+        with open(atrapa, "w") as fh:
+            fh.write("#!/bin/sh\n")
+        gwbridge.set_tool_path(atrapa)
+        self.assertEqual(gwbridge.find_gw(), atrapa)
+        self.assertEqual(gwbridge.tool_path(), atrapa)
+
+    def test_nieistniejaca_wraca_do_szukania(self):
+        """Zla sciezka nie moze odciac programu od dzialajacego gw."""
+        podstaw_gw(self, odczyt=probki.pelny_odczyt())
+        z_path = gwbridge.find_gw()
+        gwbridge.set_tool_path(os.path.join(self.katalog, "nie-ma-mnie"))
+        self.assertEqual(gwbridge.find_gw(), z_path)
+
+    def test_odczyt_uzywa_wskazanego_pliku(self):
+        argumenty = podstaw_gw(self, odczyt=probki.pelny_odczyt())
+        wskazany = gwbridge.find_gw()
+        stara = os.environ["PATH"]
+        os.environ["PATH"] = "/nie-ma-takiego-katalogu"
+        self.addCleanup(os.environ.__setitem__, "PATH", stara)
+        self.assertIsNone(gwbridge.find_gw(), "bez PATH nie ma jak go znalezc")
+        gwbridge.set_tool_path(wskazany)
+        raport = gwbridge.read_to_image(self.sciezka("d.img"), "1440")
+        self.assertEqual(raport.diagnosis, "ok")
+        self.assertTrue(os.path.exists(argumenty))
+
+    def test_wiersz_polecen_odrzuca_zla_sciezke(self):
+        import contextlib
+        import io as wejscie_wyjscie
+        bledy = wejscie_wyjscie.StringIO()
+        with contextlib.redirect_stderr(bledy):
+            kod = gwbridge.main(["--gw", os.path.join(self.katalog, "brak"),
+                                 "info"])
+        self.assertEqual(kod, 1)
+        self.assertIn("nie istnieje", bledy.getvalue())
+
+
+
+class LiczbaProb(PrzypadekZKatalogiem):
+    """
+    Dyskietka po latach w kopercie potrafi przeczytac sie dopiero przy
+    szostym podejsciu - wykladzina zbiera z niej pyl przy kazdym obrocie.
+    Stad mozliwosc podniesienia liczby prob.
+    """
+
+    def test_przekazana_do_gw(self):
+        argumenty = podstaw_gw(self, odczyt=probki.pelny_odczyt())
+        gwbridge.read_to_image(self.sciezka("d.img"), "1440", retries=10,
+                               seek_retries=3)
+        with open(argumenty) as fh:
+            wywolanie = fh.read().splitlines()
+        self.assertIn("--retries", wywolanie)
+        self.assertEqual(wywolanie[wywolanie.index("--retries") + 1], "10")
+        self.assertEqual(
+            wywolanie[wywolanie.index("--seek-retries") + 1], "3")
+
+    def test_bez_podania_nie_narzucamy_swojej(self):
+        """Bez wyraznego zadania zostawiamy domyslne zachowanie gw."""
+        argumenty = podstaw_gw(self, odczyt=probki.pelny_odczyt())
+        gwbridge.read_to_image(self.sciezka("d.img"), "1440")
+        with open(argumenty) as fh:
+            self.assertNotIn("--retries", fh.read().splitlines())
+
+
+class PodpowiedzPonownegoOdczytu(unittest.TestCase):
+    """
+    Sprawdzone na prawdziwej dyskietce: 33 nieczytelne sektory za pierwszym
+    razem, zero za drugim. Raport ma o tym mowic, zamiast zostawiac
+    uzytkownika z wrazeniem uszkodzenia.
+    """
+
+    def setUp(self):
+        gwbridge.set_language("pl")
+
+    def test_liczy_sciezki_po_ponownych_probach(self):
+        r = gwbridge.parse_log(
+            probki.pelny_odczyt(slabe={(4, 1), (26, 1), (33, 1)}), "1440")
+        self.assertEqual(r.retried_tracks, 3)
+        self.assertIn("Sciezki odczytane po ponownych probach:", r.text())
+
+    def test_podpowiedz_przy_slabych_sciezkach(self):
+        """Nawet gdy wszystko sie odczytalo - to sygnal, ze nosnik brudny."""
+        r = gwbridge.parse_log(probki.pelny_odczyt(slabe={(4, 1)}), "1440")
+        self.assertEqual(r.diagnosis, "ok")
+        self.assertIn("Zalecany ponowny odczyt", r.text())
+
+    def test_podpowiedz_przy_nieczytelnych_sektorach(self):
+        r = gwbridge.parse_log(probki.pelny_odczyt({(56, 1)}), "1440")
+        self.assertIn("Zalecany ponowny odczyt", r.text())
+        self.assertIn("zabrudzony niz uszkodzony", r.text())
+
+    def test_czysty_odczyt_bez_podpowiedzi(self):
+        r = gwbridge.parse_log(probki.pelny_odczyt(), "1440")
+        self.assertEqual(r.retried_tracks, 0)
+        self.assertNotIn("Zalecany ponowny odczyt", r.text())
+        self.assertNotIn("Sciezki odczytane po ponownych", r.text())
+
+
+
+class SkladanieObrazow(PrzypadekZKatalogiem):
+    """
+    Rozne odczyty tej samej dyskietki gubia rozne sektory - sprawdzone na
+    dyskietce Titan, gdzie cztery przejscia roznily sie jednym sektorem.
+    Zlozenie daje komplet, ktorego zadne przejscie z osobna nie dalo.
+    """
+
+    def obraz(self, brakujace=(), sektorow=8, wypelniacz=b"D"):
+        wzor = (gwbridge.BAD_FILL * 32)
+        dane = bytearray(wypelniacz * 512 * sektorow)
+        for numer in brakujace:
+            dane[numer * 512:(numer + 1) * 512] = wzor
+        return bytes(dane)
+
+    def test_zera_to_dane_a_nie_dziura(self):
+        """
+        Pusty obszar dyskietki to same zera. Uznanie go za dziure kasowaloby
+        przy skladaniu prawidlowa tresc.
+        """
+        self.assertEqual(
+            gwbridge.missing_sectors(self.obraz(wypelniacz=b"\x00"), 512),
+            set())
+
+    def test_rozpoznaje_wypelnienie_gw(self):
+        self.assertEqual(
+            gwbridge.missing_sectors(self.obraz({2, 5}), 512), {2, 5})
+
+    def test_bierze_brakujace_z_nowego(self):
+        wynik = gwbridge.merge_images(self.obraz({2, 5}),
+                                      self.obraz({5}, wypelniacz=b"N"))
+        self.assertEqual((wynik.before, wynik.recovered, wynik.missing),
+                         (2, 1, 1))
+        self.assertEqual(wynik.sectors, {5})
+        self.assertEqual(wynik.data[2 * 512:3 * 512], b"N" * 512,
+                         "sektor odzyskany pochodzi z nowego odczytu")
+
+    def test_dobre_sektory_zostaja_nietkniete(self):
+        """Nowy odczyt moze miec dziury tam, gdzie stary mial dane."""
+        wynik = gwbridge.merge_images(self.obraz({2}),
+                                      self.obraz({6}, wypelniacz=b"N"))
+        self.assertEqual(wynik.data[0:512], b"D" * 512)
+        self.assertEqual(wynik.data[6 * 512:7 * 512], b"D" * 512,
+                         "dziura w nowym nie moze skasowac danych")
+        self.assertEqual(wynik.data[2 * 512:3 * 512], b"N" * 512,
+                         "a dziure w starym uzupelnia nowy")
+        self.assertEqual((wynik.recovered, wynik.missing), (1, 0),
+                         "razem daja komplet, choc zadne z osobna nie dalo")
+
+    def test_rozne_rozmiary_odrzucane(self):
+        gwbridge.set_language("pl")
+        with self.assertRaises(gwbridge.GwError):
+            gwbridge.merge_images(self.obraz(sektorow=8),
+                                  self.obraz(sektorow=9))
+
+    def test_stan_sciezek_z_obrazu(self):
+        nosnik = gwbridge.NOSNIKI["amiga880"]
+        dane = bytearray(b"D" * nosnik.rozmiar)
+        wzor = gwbridge.BAD_FILL * 32
+        for s in range(53 * 11, 53 * 11 + 11):        # cala sciezka C26 H1
+            dane[s * 512:(s + 1) * 512] = wzor
+        dane[70 * 11 * 512:(70 * 11 + 1) * 512] = wzor   # jeden sektor
+        stan = gwbridge.coverage(bytes(dane), nosnik)
+        self.assertEqual(stan[(26, 1)], "bad")
+        self.assertEqual(stan[(35, 0)], "retried", "czesc sektorow brakuje")
+        self.assertEqual(stan[(0, 0)], "ok")
+
+    def test_raport_dostaje_numer_przejscia(self):
+        obraz = self.sciezka("Titan.adf")
+        pierwszy = gwbridge.report_name(obraz)
+        self.assertTrue(pierwszy.endswith("Titan-przejscie-1.txt"))
+        with open(pierwszy, "w") as fh:
+            fh.write("x")
+        self.assertTrue(
+            gwbridge.report_name(obraz).endswith("Titan-przejscie-2.txt"))
+
+    def test_kompletny_obraz_jest_nazwany_wprost(self):
+        """
+        Rozpoznanie opisuje przejscie, a nie obraz. Przejscie z bledami
+        moze konczyc sie obrazem kompletnym, bo dobre dane sa juz w pliku -
+        i to trzeba powiedziec, zamiast straszyc uszkodzeniami.
+        """
+        gwbridge.set_language("pl")
+        r = gwbridge.parse_log(probki.pelny_odczyt({(70, 1)}), "1440")
+        pelny = self.obraz()
+        r.merge = gwbridge.merge_images(pelny, pelny)
+        tekst = r.text()
+        self.assertIn("Zebrany obraz jest kompletny", tekst)
+        self.assertNotIn("brakuje jeszcze", tekst)
+
+    def test_niepelny_obraz_zacheca_do_kolejnego_przejscia(self):
+        gwbridge.set_language("pl")
+        r = gwbridge.parse_log(probki.pelny_odczyt({(70, 1)}), "1440")
+        r.merge = gwbridge.merge_images(self.obraz({2, 5}), self.obraz({5}))
+        tekst = r.text()
+        self.assertIn("brakuje jeszcze 1", tekst)
+        self.assertNotIn("jest kompletny", tekst)
+
+    def test_raport_pokazuje_zlozenie(self):
+        gwbridge.set_language("pl")
+        r = gwbridge.parse_log(probki.pelny_odczyt(), "1440")
+        r.merge = gwbridge.merge_images(self.obraz({2, 5}),
+                                        self.obraz({5}, wypelniacz=b"N"))
+        tekst = r.text()
+        self.assertIn("Skladanie z poprzednimi przejsciami:", tekst)
+        self.assertIn("Odzyskane w tym przejsciu:", tekst)
+
+
 if __name__ == "__main__":
     unittest.main()

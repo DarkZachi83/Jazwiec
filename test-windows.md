@@ -206,3 +206,18 @@ znikną, to właśnie ta przyczyna — poprawka jest prosta, wystarczy uwzględn
 Obsługi fizycznych napędów pod Windowsem i Greaseweazle. To osobny temat,
 wymagający sprzętu, i należy do drugiego wydania. Punkt G sprawdza wyłącznie,
 czy sama obecność tego kodu nie przeszkadza reszcie programu.
+
+## Płyty CD
+
+- [ ] **Napęd → Płyty CD** — czy napęd pojawia się na liście jako
+      litera dysku (`D:  CD/DVD`), a nie jako ścieżka urządzenia
+- [ ] **Sprawdź płytę** przy płycie z danymi — czy pokazuje etykietę,
+      rozmiar i wiersz o ścieżkach
+- [ ] **Zgraj do pliku .iso** — czy pasek postępu rusza i czy powstały plik
+      ma rozmiar zgodny z liczbą sektorów z opisu płyty
+- [ ] Płyta z samą muzyką — czy przycisk zgrywania zostaje nieczynny,
+      a powód pojawia się na czerwono
+- [ ] Płyta mieszana (gra z muzyką na ścieżkach) — czy zgrywa dane
+      i wypisuje uwagę o braku muzyki
+- [ ] Pusty napęd — czy mówi o tym wprost, zamiast zgłaszać błąd
+- [ ] **Zapisz raport do .txt** — czy plik powstaje w wybranym miejscu
