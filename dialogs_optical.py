@@ -31,6 +31,7 @@ if TYPE_CHECKING:                  # tylko dla adnotacji - bez importu cykliczne
     from gui_main import RetroZachar
 
 ODPYTYWANIE_MS = 150
+MIN_RAPORT = 120
 
 
 class OpticalDialog(tk.Toplevel):
@@ -155,6 +156,26 @@ class OpticalDialog(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self.zamknij)
         self.bind("<Escape>", lambda e: self.zamknij())
         self.odswiez_napedy()
+        self._dopasuj_do_ekranu()
+
+    def _dopasuj_do_ekranu(self) -> None:
+        """Skraca pole raportu, gdy okno nie miesci sie na ekranie."""
+        self.update_idletasks()
+        dostepne = self.winfo_screenheight() - 90
+        potrzeba = self.winfo_reqheight()
+        if potrzeba <= dostepne:
+            return
+        obecna = int(self.widok.cget("height"))
+        self.widok.configure(height=max(MIN_RAPORT,
+                                        obecna - (potrzeba - dostepne)))
+        self.update_idletasks()
+        # Na naprawde niskim ekranie samo skrocenie raportu nie wystarcza.
+        # Narzucamy wtedy wysokosc okna: raport ma wlasny przewijak, wiec
+        # traci widok, a nie tresc - w odroznieniu od przyciskow, ktore
+        # schowane za krawedzia ekranu przestaja istniec.
+        if self.winfo_reqheight() > dostepne:
+            self.geometry(f"{self.winfo_reqwidth()}x{dostepne}")
+            self.update_idletasks()
 
     # -- napedy ------------------------------------------------------------
 

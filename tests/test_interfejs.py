@@ -863,6 +863,37 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
         self.assertEqual(nowe_okno._katalog_startowy(), katalog,
                          "po ponownym otwarciu okna tez")
 
+    def test_okno_miesci_sie_na_niskim_ekranie(self):
+        """
+        Zgloszenie od testera: dolna czesc okna chowala sie za paskiem
+        zadan i raportu nie bylo widac wcale. Przyciski musza zostac
+        w zasiegu, bo schowane za krawedzia przestaja istniec - raport
+        ma wlasny przewijak, wiec traci widok, a nie tresc.
+        """
+        podstaw_gw(self)
+        okno = self.otworz()
+        wysokosc = okno.winfo_screenheight()
+        self.assertLessEqual(okno.winfo_height(), wysokosc,
+                             "okno nie moze byc wyzsze od ekranu")
+        dol = okno.btn_read.winfo_rooty() + okno.btn_read.winfo_height()
+        self.assertLessEqual(dol, wysokosc,
+                             "przyciski maja zostac w zasiegu")
+        self.assertGreaterEqual(int(okno.widok.cget("height")), 120,
+                                "raport ponizej tej wysokosci jest bezuzyteczny")
+
+    def test_nazwy_formatow_w_jezyku_okna(self):
+        import gwbridge
+        podstaw_gw(self)
+        self.app.set_language("en")
+        okno = self.otworz()
+        etykiety = [str(p.cget("text")) for p in okno.format_buttons.values()]
+        self.assertTrue(etykiety)
+        for napis in etykiety:
+            with self.subTest(etykieta=napis):
+                self.assertNotIn("sektorow", napis)
+                self.assertNotIn("jednostronna", napis)
+        self.assertEqual(gwbridge._lang, "en")
+
     def test_zakladki_rodzin_nosnikow(self):
         """
         Kazda rodzina ma wlasna zakladke. Bez podzialu lista formatow

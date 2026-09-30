@@ -105,7 +105,7 @@ class Nosnik:
 
     klucz: str
     rodzina: str                  # pc, amiga, atari
-    etykieta: str
+    etykieta_pl: str
     gw_format: str
     cylindry: int
     glowice: int
@@ -121,6 +121,26 @@ class Nosnik:
     @property
     def sciezki(self) -> int:
         return self.cylindry * self.glowice
+
+    etykieta_en: str = ""
+    fat12_klucz: str = ""         # formaty pecetowe biora nazwe z FAT12
+
+    @property
+    def etykieta(self) -> str:
+        """
+        Nazwa formatu w jezyku okna.
+
+        Wyliczana za kazdym razem, a nie zapamietana przy wczytaniu modulu:
+        tablica powstaje raz, przy starcie programu, wiec zapamietana nazwa
+        zostawala w jezyku sprzed przelaczenia i zadna zmiana jej nie
+        ruszala.
+        """
+        if self.fat12_klucz:
+            fmt = fat12.FLOPPY_FORMATS[self.fat12_klucz]
+            return (fmt.label_en if _lang == "en" else fmt.label_pl).strip()
+        if _lang == "en" and self.etykieta_en:
+            return self.etykieta_en
+        return self.etykieta_pl
 
     @property
     def nasz_system_plikow(self) -> bool:
@@ -145,7 +165,8 @@ def _nosniki_pc() -> list[Nosnik]:
     for klucz, nazwa in nazwy.items():
         fmt = fat12.FLOPPY_FORMATS[klucz]
         wynik.append(Nosnik(
-            klucz=klucz, rodzina="pc", etykieta=fmt.label.strip(),
+            klucz=klucz, rodzina="pc", etykieta_pl=fmt.label_pl.strip(),
+            etykieta_en=fmt.label_en.strip(), fat12_klucz=klucz,
             gw_format=nazwa,
             cylindry=fmt.total_sectors // (fmt.sectors_per_track * fmt.heads),
             glowice=fmt.heads, sektory=fmt.sectors_per_track,
@@ -158,17 +179,21 @@ def _nosniki_pc() -> list[Nosnik]:
 # strefy - to wymaga osobnej obslugi i czeka na swoja kolej.
 NOSNIKI: dict[str, Nosnik] = {n.klucz: n for n in _nosniki_pc() + [
     Nosnik("amiga880", "amiga", 'Amiga  880 KB (DD)', "amiga.amigados",
-           80, 2, 11, 512, ".adf"),
+           80, 2, 11, 512, ".adf", etykieta_en='Amiga  880 KB (DD)'),
     Nosnik("amiga1760", "amiga", 'Amiga  1,76 MB (HD)', "amiga.amigados_hd",
-           80, 2, 22, 512, ".adf"),
-    Nosnik("atarist360", "atari", 'Atari ST  360 KB (SS)', "atarist.360",
-           80, 1, 9, 512, ".st"),
-    Nosnik("atarist720", "atari", 'Atari ST  720 KB (DS)', "atarist.720",
-           80, 2, 9, 512, ".st"),
+           80, 2, 22, 512, ".adf", etykieta_en='Amiga  1.76 MB (HD)'),
+    Nosnik("atarist360", "atari", 'Atari ST  360 KB (jednostronna)',
+           "atarist.360", 80, 1, 9, 512, ".st",
+           etykieta_en='Atari ST  360 KB (single-sided)'),
+    Nosnik("atarist720", "atari", 'Atari ST  720 KB (dwustronna)',
+           "atarist.720", 80, 2, 9, 512, ".st",
+           etykieta_en='Atari ST  720 KB (double-sided)'),
     Nosnik("atarist800", "atari", 'Atari ST  800 KB (10 sektorow)',
-           "atarist.800", 80, 2, 10, 512, ".st"),
+           "atarist.800", 80, 2, 10, 512, ".st",
+           etykieta_en='Atari ST  800 KB (10 sectors)'),
     Nosnik("atarist880", "atari", 'Atari ST  880 KB (11 sektorow)',
-           "atarist.880", 80, 2, 11, 512, ".st"),
+           "atarist.880", 80, 2, 11, 512, ".st",
+           etykieta_en='Atari ST  880 KB (11 sectors)'),
 ]}
 
 # Kolejnosc zakladek w oknie i ich nazwy.

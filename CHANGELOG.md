@@ -2,6 +2,38 @@
 
 Numery wersji odpowiadają wartości `APP_VERSION` w `styles.py`.
 
+## 1.15.1
+
+- **Nazwy formatów w oknie Greaseweazle tłumaczą się.** W angielskim oknie
+  były polskie („jednostronna", „8 sektorow"), bo tablica nośników
+  powstaje raz, przy wczytaniu modułu, i zapamiętywała nazwę w języku
+  sprzed przełączenia. Teraz nazwa powstaje w chwili wyświetlenia, razem
+  z separatorem dziesiętnym: `1.44 MB` po angielsku, `1,44 MB` po polsku.
+  Zgłoszone przez testera.
+- **Okno Greaseweazle i okno płyt mieszczą się na ekranie.** Dolna część
+  chowała się za paskiem zadań i raportu nie było widać wcale. Program
+  skraca teraz pole raportu, a gdy to nie wystarcza, narzuca wysokość
+  okna — raport ma własny przewijak, więc traci widok, a nie treść;
+  przyciski schowane za krawędzią przestałyby istnieć.
+
+## 1.15
+
+- **Dyskietki Atari ST.** Program rozpoznaje je mimo braku sygnatury
+  `55 AA`, której Atari nie zapisywało — dotąd odrzucał je, zanim zajrzał
+  do bloku parametrów. Przy jej braku wymaga, żeby deklarowana liczba
+  sektorów zgadzała się z rozmiarem pliku co do bajta, a geometria
+  mieściła się w granicach dyskietki; losowy plik ani obcięty obraz tego
+  nie spełniają.
+- Dwa nowe formaty: **Atari ST 800 KB** (10 sektorów na ścieżkę) i
+  **880 KB** (11). Atarowskie 360 i 720 KB nie różnią się niczym od
+  pecetowych, więc nie dostały osobnych pozycji — dwie nazwy na to samo
+  tylko myliłyby na liście.
+- Zapis do obrazu Atari nie dopisuje sygnatury: obraz zostaje taki, jaki
+  był. Poprawność potwierdza `fsck.fat`.
+- Uruchamiacz testów sam znajduje moduły `test_*.py`. Lista wpisana
+  ręcznie była jedynym miejscem, gdzie nowy zestaw testów mógł zniknąć
+  po cichu — zdarzyło się to przy czterech naraz.
+
 ## 1.14.2
 
 - Testy okna ustawiają język wprost, zaraz po utworzeniu okna. Dotąd

@@ -944,5 +944,52 @@ class SkladanieObrazow(PrzypadekZKatalogiem):
         self.assertIn("Odzyskane w tym przejsciu:", tekst)
 
 
+
+class NazwyFormatowWDwochJezykach(unittest.TestCase):
+    """
+    Zgloszenie od testera: w angielskim oknie nazwy formatow byly polskie
+    ("jednostronna", "8 sektorow"). Tablica nosnikow powstaje raz, przy
+    wczytaniu modulu, wiec zapamietana nazwa zostawala w jezyku sprzed
+    przelaczenia i zadna zmiana jej nie ruszala.
+    """
+
+    def tearDown(self):
+        gwbridge.set_language("pl")
+
+    def test_nazwy_zmieniaja_sie_z_jezykiem(self):
+        gwbridge.set_language("pl")
+        polskie = {k: n.etykieta for k, n in gwbridge.NOSNIKI.items()}
+        gwbridge.set_language("en")
+        angielskie = {k: n.etykieta for k, n in gwbridge.NOSNIKI.items()}
+        rozne = [k for k in polskie if polskie[k] != angielskie[k]]
+        self.assertTrue(rozne, "nazwy maja sie roznic miedzy jezykami")
+        self.assertIn("180", rozne)
+
+    def test_brak_polskich_slow_w_angielskich_nazwach(self):
+        gwbridge.set_language("en")
+        for klucz, nosnik in gwbridge.NOSNIKI.items():
+            with self.subTest(nosnik=klucz):
+                for slowo in ("jednostronna", "dwustronna", "sektorow",
+                              "sciezke"):
+                    self.assertNotIn(slowo, nosnik.etykieta)
+
+    def test_separator_dziesietny_zalezy_od_jezyka(self):
+        """Po angielsku 1.44 MB, po polsku 1,44 MB - drobiazg, ale widac."""
+        gwbridge.set_language("en")
+        self.assertIn("1.44", gwbridge.NOSNIKI["1440"].etykieta)
+        self.assertIn("1.76", gwbridge.NOSNIKI["amiga1760"].etykieta)
+        gwbridge.set_language("pl")
+        self.assertIn("1,44", gwbridge.NOSNIKI["1440"].etykieta)
+        self.assertIn("1,76", gwbridge.NOSNIKI["amiga1760"].etykieta)
+
+    def test_kazdy_nosnik_ma_obie_nazwy(self):
+        for klucz, nosnik in gwbridge.NOSNIKI.items():
+            with self.subTest(nosnik=klucz):
+                gwbridge.set_language("pl")
+                self.assertTrue(nosnik.etykieta.strip())
+                gwbridge.set_language("en")
+                self.assertTrue(nosnik.etykieta.strip())
+
+
 if __name__ == "__main__":
     unittest.main()

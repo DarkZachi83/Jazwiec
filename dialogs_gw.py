@@ -39,6 +39,9 @@ if TYPE_CHECKING:                  # tylko dla adnotacji - bez importu cykliczne
 
 ODPYTYWANIE_MS = 150
 
+# Ponizej tej wysokosci pole raportu przestaje byc czytelne.
+MIN_RAPORT = 120
+
 
 # Kolor kazdego stanu sciezki. Czerwony i purpurowy znacza co innego:
 # pierwszy mowi "wyrzuc dyskietke", drugi "nie wkladaj nic do tego napedu".
@@ -178,6 +181,9 @@ class GwDialog(tk.Toplevel):
         self._stan: gwbridge.GwStatus | None = None
         self.raport: gwbridge.GwReport | None = None
 
+        # Jezyk przed zbudowaniem okna: nazwy formatow powstaja podczas
+        # rysowania listy i bez tego wyszlyby w jezyku sprzed przelaczenia.
+        gwbridge.set_language(app.lang)
         self.title(app.t("gw_title"))
         self.configure(padx=12, pady=12)
         self.transient(master)
@@ -383,7 +389,34 @@ class GwDialog(tk.Toplevel):
         # zwezeniu mapa zawinelaby sie i stracila uklad kolumn.
         self.update_idletasks()
         self.minsize(self.winfo_reqwidth(), 1)
+        self._dopasuj_do_ekranu()
         self.sprawdz_urzadzenie()
+
+    def _dopasuj_do_ekranu(self) -> None:
+        """
+        Skraca pole raportu, gdy okno nie miesci sie na ekranie.
+
+        Zgloszenie z uzytkowania: na nizszym ekranie dolna czesc okna
+        chowala sie za paskiem zadan i raportu nie bylo widac wcale.
+        Wysokosc pola jest jedyna rzecza, ktora mozna tu oddac bez straty -
+        reszta to przyciski i opisy potrzebne do pracy.
+        """
+        self.update_idletasks()
+        dostepne = self.winfo_screenheight() - 90   # pasek zadan i ramka
+        potrzeba = self.winfo_reqheight()
+        if potrzeba <= dostepne:
+            return
+        obecna = int(self.widok.cget("height"))
+        self.widok.configure(height=max(MIN_RAPORT,
+                                        obecna - (potrzeba - dostepne)))
+        self.update_idletasks()
+        # Na naprawde niskim ekranie samo skrocenie raportu nie wystarcza.
+        # Narzucamy wtedy wysokosc okna: raport ma wlasny przewijak, wiec
+        # traci widok, a nie tresc - w odroznieniu od przyciskow, ktore
+        # schowane za krawedzia ekranu przestaja istniec.
+        if self.winfo_reqheight() > dostepne:
+            self.geometry(f"{self.winfo_reqwidth()}x{dostepne}")
+            self.update_idletasks()
 
     # -- urzadzenie --------------------------------------------------------
 

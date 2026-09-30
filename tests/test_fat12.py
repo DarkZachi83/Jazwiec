@@ -264,5 +264,147 @@ class WarstwaSilnikow(PrzypadekZKatalogiem):
                          "DLUGANAZ.TEK")
 
 
+
+class AtariST(PrzypadekZKatalogiem):
+    """
+    Dyskietki Atari ST to odmiana FAT12: bez sygnatury 55 AA, z wlasna
+    instrukcja skoku i - w formatach 800 i 880 KB - z dziesiecioma albo
+    jedenastoma sektorami na sciezke zamiast dziewieciu.
+    """
+
+    def obraz_atari(self, klucz: str = "st800",
+                    bez_sygnatury: bool = True) -> str:
+        sciezka = self.sciezka(f"{klucz}.st")
+        fat12.format_image(sciezka, fat12.FLOPPY_FORMATS[klucz], "ATARI",
+                           overwrite=True)
+        if bez_sygnatury:
+            with open(sciezka, "r+b") as fh:
+                fh.seek(0)
+                fh.write(b"\x60\x1c\x00")     # skok jak w Atari
+                fh.seek(510)
+                fh.write(b"\x00\x00")          # brak sygnatury
+        return sciezka
+
+    def test_formaty_maja_wlasna_geometrie(self):
+        st800 = fat12.FLOPPY_FORMATS["st800"]
+        st880 = fat12.FLOPPY_FORMATS["st880"]
+        self.assertEqual((st800.sectors_per_track, st800.heads), (10, 2))
+        self.assertEqual((st880.sectors_per_track, st880.heads), (11, 2))
+        self.assertEqual(st800.total_sectors * 512, 819200)
+        self.assertEqual(st880.total_sectors * 512, 901120)
+
+    def test_bez_powtorzen_z_formatami_pecetowymi(self):
+        """
+        Atarowskie 360 i 720 KB nie roznia sie od pecetowych, wiec nie maja
+        osobnych pozycji - dwie nazwy na to samo tylko myla.
+        """
+        widziane = {}
+        for klucz, f in fat12.FLOPPY_FORMATS.items():
+            opis = (f.total_sectors * f.bytes_per_sector, f.sectors_per_track,
+                    f.heads, f.sectors_per_cluster)
+            self.assertNotIn(opis, widziane,
+                             f"{klucz} powtarza geometrie {widziane.get(opis)}")
+            widziane[opis] = klucz
+
+    def test_rozpoznanie_bez_sygnatury(self):
+        import engines
+        for klucz in ("st800", "st880"):
+            with self.subTest(format=klucz):
+                sciezka = self.obraz_atari(klucz)
+                silnik = engines.detect(sciezka)
+                self.assertIsNotNone(silnik, "obraz Atari ma byc rozpoznany")
+                self.assertEqual(silnik.key, "fat12")
+
+    def test_otwarcie_i_zapis(self):
+        import engines
+        sciezka = self.obraz_atari("st880")
+        obraz = engines.open_image(sciezka)
+        self.addCleanup(obraz.close)
+        obraz.mkdir("/AUTO")
+        obraz.write_file("/AUTO/START.PRG", bytes(range(256)) * 20)
+        self.assertEqual([w.name for w in obraz.listdir("/AUTO")],
+                         ["START.PRG"])
+        self.assertEqual(len(obraz.read_file("/AUTO/START.PRG")), 5120)
+
+    def test_zapis_nie_dopisuje_sygnatury(self):
+        """
+        Obraz ma zostac taki, jaki byl - dopisanie sygnatury zmienialoby
+        dyskietke Atari w cos posredniego.
+        """
+        import engines
+        sciezka = self.obraz_atari("st800")
+        obraz = engines.open_image(sciezka)
+        obraz.write_file("/A.TXT", b"x")
+        obraz.close()
+        with open(sciezka, "rb") as fh:
+            fh.seek(510)
+            self.assertEqual(fh.read(2), b"\x00\x00")
+
+    def test_fsck_nie_ma_zastrzezen(self):
+        import shutil
+        if not shutil.which("fsck.fat"):
+            self.skipTest("brak fsck.fat")
+        for klucz in ("st800", "st880"):
+            with self.subTest(format=klucz):
+                sciezka = self.obraz_atari(klucz, bez_sygnatury=False)
+                wynik = subprocess.run(["fsck.fat", "-n", sciezka],
+                                       capture_output=True, text=True)
+                self.assertEqual(wynik.returncode, 0, wynik.stdout[-300:])
+
+    def test_losowy_plik_nie_jest_dyskietka(self):
+        """
+        Rozluznienie rozpoznawania nie moze robic dyskietki z byle pliku.
+        Wymagamy zgodnosci deklarowanej liczby sektorow z rozmiarem.
+        """
+        import engines
+        import os
+        sciezka = self.sciezka("smieci.bin")
+        with open(sciezka, "wb") as fh:
+            fh.write(os.urandom(819200))
+        self.assertIsNone(engines.detect(sciezka))
+
+    def test_niemozliwa_geometria_jest_odrzucana(self):
+        """
+        Blok parametrow moze sie zgadzac z rozmiarem, a i tak opisywac cos,
+        co dyskietka nie jest. Granice geometrii odsiewaja takie przypadki -
+        na dyskietce nie ma tysiaca sektorow na sciezce ani pieciu glowic.
+        """
+        rozmiar = 819200
+        for opis, na_sciezke, glowic in (("tysiac sektorow", 1000, 2),
+                                         ("piec glowic", 10, 5),
+                                         ("zero sektorow", 0, 2)):
+            with self.subTest(przypadek=opis):
+                naglowek = bytearray(512)
+                naglowek[0x0B:0x0D] = (512).to_bytes(2, "little")
+                naglowek[0x0D] = 2
+                naglowek[0x0E:0x10] = (1).to_bytes(2, "little")
+                naglowek[0x10] = 2
+                naglowek[0x11:0x13] = (112).to_bytes(2, "little")
+                naglowek[0x13:0x15] = (rozmiar // 512).to_bytes(2, "little")
+                naglowek[0x15] = 0xF9
+                naglowek[0x16:0x18] = (5).to_bytes(2, "little")
+                naglowek[0x18:0x1A] = na_sciezke.to_bytes(2, "little")
+                naglowek[0x1A:0x1C] = glowic.to_bytes(2, "little")
+                self.assertFalse(
+                    fat12.rozpoznaj_naglowek(bytes(naglowek), rozmiar))
+
+    def test_prawdziwa_geometria_przechodzi(self):
+        """Ta sama droga musi przepuscic obraz, ktory jest poprawny."""
+        with open(self.obraz_atari("st880"), "rb") as fh:
+            naglowek = fh.read(512)
+        self.assertTrue(fat12.rozpoznaj_naglowek(naglowek, 901120))
+
+    def test_blok_parametrow_niezgodny_z_rozmiarem(self):
+        """Obciety obraz Atari nie moze udawac calego."""
+        import engines
+        sciezka = self.obraz_atari("st880")
+        with open(sciezka, "rb") as fh:
+            dane = fh.read()
+        obciety = self.sciezka("obciety.st")
+        with open(obciety, "wb") as fh:
+            fh.write(dane[:len(dane) // 2])
+        self.assertIsNone(engines.detect(obciety))
+
+
 if __name__ == "__main__":
     unittest.main()

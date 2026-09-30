@@ -95,25 +95,10 @@ def _fat12() -> Engine:
 
     def rozpoznaj(header: bytes, size: int) -> bool:
         """
-        FAT12 poznajemy po sektorze rozruchowym: sygnaturze na koncu
-        pierwszego sektora i sensownych wartosciach w bloku BPB.
+        Rozpoznanie zostawiamy silnikowi: zna swoje formaty, w tym te
+        bez sygnatury 55 AA, jak dyskietki Atari ST.
         """
-        if len(header) < 512:
-            return False
-        if header[510:512] != bytes([0x55, 0xAA]):
-            return False
-        bytes_per_sector = int.from_bytes(header[0x0B:0x0D], "little")
-        sectors_per_cluster = header[0x0D]
-        num_fats = header[0x10]
-        root_entries = int.from_bytes(header[0x11:0x13], "little")
-        media = header[0x15]
-        return (
-            bytes_per_sector in (512, 1024, 2048, 4096)
-            and sectors_per_cluster in (1, 2, 4, 8, 16, 32, 64, 128)
-            and num_fats in (1, 2)
-            and root_entries > 0          # FAT32 ma tu zero
-            and media >= 0xF0
-        )
+        return fat12.rozpoznaj_naglowek(header, size)
 
     return Engine(
         key="fat12",

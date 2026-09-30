@@ -84,7 +84,7 @@ MESSAGES: dict[str, dict[str, str]] = {
                   "zeby nie nadpisac danych.",
         "no_unique_83": "Nie udalo sie wygenerowac unikalnej nazwy 8.3.",
         "too_small": "Plik jest za maly, by byl obrazem dyskietki.",
-        "no_signature": "Brak sygnatury 0x55AA - to nie jest obraz dyskietki.",
+        "no_signature": "To nie wyglada na obraz dyskietki: brak sygnatury 0x55AA,\na blok parametrow nie zgadza sie z rozmiarem pliku.",
         "odd_sector": "Nietypowy rozmiar sektora ({size} B).",
         "bad_bpb": "Uszkodzony blok BPB w sektorze rozruchowym.",
         "looks_fat32": "Obraz wyglada na FAT32 - obslugiwany jest FAT12.",
@@ -141,7 +141,7 @@ MESSAGES: dict[str, dict[str, str]] = {
                   "so that no data is overwritten.",
         "no_unique_83": "Could not generate a unique 8.3 name.",
         "too_small": "File is too small to be a floppy image.",
-        "no_signature": "No 0x55AA signature - this is not a floppy image.",
+        "no_signature": "This does not look like a floppy image: no 0x55AA signature,\nand the parameter block does not match the file size.",
         "odd_sector": "Unusual sector size ({size} B).",
         "bad_bpb": "Damaged BPB block in the boot sector.",
         "looks_fat32": "Image looks like FAT32 - only FAT12 is supported.",
@@ -264,6 +264,46 @@ class FloppyFormat:
 # Parametry zgodne z oryginalnymi dyskietkami IBM PC. Wartosci sectors_per_fat,
 # media_descriptor i root_entries sa historyczne - DOS rozpoznaje nosnik takze
 # po samym deskryptorze nosnika, wiec musza sie zgadzac co do bajtu.
+def rozpoznaj_naglowek(header: bytes, size: int) -> bool:
+    """
+    Czy pierwszy sektor opisuje system plikow FAT12, ktory umiemy czytac.
+
+    Dyskietki pecetowe konczy sygnatura 55 AA i to najpewniejszy znak.
+    Atari ST jej nie zapisuje, a sektor rozruchowy zaczyna sie tam inna
+    instrukcja skoku - dlatego przy jej braku opieramy sie na samym bloku
+    parametrow i zadamy, zeby deklarowana liczba sektorow zgadzala sie
+    z rozmiarem pliku co do bajta. Ten warunek jest ostry: przypadkowy
+    plik prawie nigdy go nie spelnia.
+    """
+    if len(header) < 512:
+        return False
+    bajtow_na_sektor = int.from_bytes(header[0x0B:0x0D], "little")
+    na_klaster = header[0x0D]
+    tablic = header[0x10]
+    wpisow = int.from_bytes(header[0x11:0x13], "little")
+    nosnik = header[0x15]
+    sektorow = int.from_bytes(header[0x13:0x15], "little")
+    na_sciezke = int.from_bytes(header[0x18:0x1A], "little")
+    glowic = int.from_bytes(header[0x1A:0x1C], "little")
+
+    sensowny = (bajtow_na_sektor in (512, 1024, 2048, 4096)
+                and na_klaster in (1, 2, 4, 8, 16, 32, 64, 128)
+                and tablic in (1, 2)
+                and wpisow > 0)          # FAT32 ma tu zero
+    if not sensowny:
+        return False
+
+    if header[510:512] == bytes([0x55, 0xAA]):
+        return nosnik >= 0xF0
+
+    # Bez sygnatury: Atari ST albo inna odmiana. Wymagamy zgodnosci
+    # rozmiaru i geometrii mieszczacej sie w granicach dyskietki.
+    return (sektorow > 0
+            and sektorow * bajtow_na_sektor == size
+            and 1 <= na_sciezke <= 36
+            and 1 <= glowic <= 2)
+
+
 FLOPPY_FORMATS: dict[str, FloppyFormat] = {
     "360": FloppyFormat(
         key="360",
@@ -312,6 +352,39 @@ FLOPPY_FORMATS: dict[str, FloppyFormat] = {
         sectors_per_fat=9,
         sectors_per_track=18,
         heads=2,
+    ),
+
+    # --- Atari ST ------------------------------------------------------
+    # Atari zapisywalo FAT12 bez sygnatury 55 AA, a zeby zmiescic wiecej,
+    # upychalo 10 albo 11 sektorow na sciezke zamiast dziewieciu. Tylko te
+    # dwie geometrie sa tu osobnymi pozycjami: atarowskie 360 i 720 KB nie
+    # roznia sie niczym od pecetowych i obsluguja je wpisy "360_35" i
+    # "720" - dwie nazwy na to samo tylko zasmiecalyby liste.
+    "st800": FloppyFormat(
+        key="st800",
+        label_pl='Atari ST  800 KB (2 x 10 sektorow)',
+        label_en='Atari ST  800 KB (2 x 10 sectors)',
+        total_sectors=1600,
+        sectors_per_cluster=2,
+        root_entries=112,
+        media_descriptor=0xF9,
+        sectors_per_fat=5,
+        sectors_per_track=10,
+        heads=2,
+        group="other",
+    ),
+    "st880": FloppyFormat(
+        key="st880",
+        label_pl='Atari ST  880 KB (2 x 11 sektorow)',
+        label_en='Atari ST  880 KB (2 x 11 sectors)',
+        total_sectors=1760,
+        sectors_per_cluster=2,
+        root_entries=112,
+        media_descriptor=0xF9,
+        sectors_per_fat=5,
+        sectors_per_track=11,
+        heads=2,
+        group="other",
     ),
 
     # --- formaty rzadsze, wczesne i nietypowe --------------------------
@@ -791,7 +864,11 @@ class Fat12Image:
         d = self.data
         if len(d) < 512:
             raise Fat12Error(_t("too_small"))
-        if d[0x1FE] != 0x55 or d[0x1FF] != 0xAA:
+        # Sygnatury 55 AA nie ma na dyskietkach Atari ST, wiec jej brak
+        # nie moze sam w sobie przesadzac. Sprawdzamy to samo, co przy
+        # rozpoznawaniu pliku: albo sygnatura, albo blok parametrow
+        # zgodny z rozmiarem obrazu co do bajta.
+        if not rozpoznaj_naglowek(bytes(d[:512]), len(d)):
             raise Fat12Error(_t("no_signature"))
 
         self.bytes_per_sector = struct.unpack_from("<H", d, 0x0B)[0]
