@@ -149,6 +149,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gw_ready": "{model}, firmware {firmware}, port {port}   "
                     "(narzedzia gw {tool})",
         "gw_recheck": "Sprawdz ponownie",
+        "rpt_title": "Raport - {co}",
+        "rpt_save": "Zapisz do .txt",
+        "rpt_close": "Zamknij",
+        "rpt_show": "Pokaz raport",
+        "rpt_none": "Raport pojawi sie po zakonczeniu operacji.",
+        "gw_fold": "Zwin opis",
+        "gw_unfold": "Rozwin opis",
+        "gw_fold_hint": "Opis i sciezka do narzedzia sa potrzebne raz - "
+                        "zwiniete robia miejsce na raport.",
         "gw_pick_tool": "Wskaz plik gw...",
         "gw_pick_tool_title": "Wskaz plik gw (gw.exe pod Windows)",
         "gw_tool_hint": "Narzedzia Greaseweazle rozpakowane poza PATH? Wskaz "
@@ -741,6 +750,15 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "gw_ready": "{model}, firmware {firmware}, port {port}   "
                     "(gw tools {tool})",
         "gw_recheck": "Check again",
+        "rpt_title": "Report - {co}",
+        "rpt_save": "Save to .txt",
+        "rpt_close": "Close",
+        "rpt_show": "Show report",
+        "rpt_none": "The report appears once the job is done.",
+        "gw_fold": "Collapse",
+        "gw_unfold": "Show details",
+        "gw_fold_hint": "The description and tool path are needed once - "
+                        "collapsing them leaves room for the report.",
         "gw_pick_tool": "Locate gw file...",
         "gw_pick_tool_title": "Locate the gw file (gw.exe on Windows)",
         "gw_tool_hint": "Greaseweazle tools unpacked outside PATH? Point to "

@@ -17,13 +17,13 @@ from __future__ import annotations
 import os
 import threading
 import tkinter as tk
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox
 from typing import TYPE_CHECKING
 
 import optical
 from styles import (
     APP_NAME, SCREEN, PANEL, FRAME, TEXT, BRIGHT, ACCENT, HINT, ALERT, GOOD,
-    FIELD, Panel, ProgressBar, ReportView,
+    FIELD, Panel, ProgressBar, ReportWindow,
 )
 from system import _real_home, _znajdz_ikone, hand_back, wzorzec_pliku
 
@@ -31,7 +31,9 @@ if TYPE_CHECKING:                  # tylko dla adnotacji - bez importu cykliczne
     from gui_main import RetroZachar
 
 ODPYTYWANIE_MS = 150
-MIN_RAPORT = 120
+# Wiecej niz tyle raport nie potrzebuje - reszta miejsca lepiej sluzy
+# mapom i przyciskom.
+MAKS_RAPORT = 270
 
 
 class OpticalDialog(tk.Toplevel):
@@ -127,23 +129,16 @@ class OpticalDialog(tk.Toplevel):
                 wraplength=max(100, e.width)), add="+")
 
         # -- raport ---------------------------------------------------------
-        pole = tk.Frame(body, bg=PANEL)
-        pole.pack(fill="both", expand=True, pady=(8, 0))
-        self.widok = ReportView(pole, app.f_small,
-                                _znajdz_ikone("jazwiec-cd.png"))
-        przewijak = ttk.Scrollbar(pole, orient="vertical",
-                                  command=self.widok.yview,
-                                  style="RZ.Vertical.TScrollbar")
-        self.widok.configure(yscrollcommand=przewijak.set)
-        przewijak.pack(side="right", fill="y")
-        self.widok.pack(side="left", fill="both", expand=True)
+        # Raport w osobnym oknie - patrz ReportWindow w styles.py.
+        self.okno_raportu = None
+        self._raport_tekst = ""
 
         dol = tk.Frame(body, bg=PANEL)
         dol.pack(fill="x", pady=(10, 0))
-        self.btn_save = app._button(dol, app.t("gw_save_report"),
-                                    self.zapisz_raport)
-        self.btn_save.configure(font=app.f_small, state="disabled")
-        self.btn_save.pack(side="left")
+        self.btn_report = app._button(dol, app.t("rpt_show"),
+                                      self.pokaz_raport)
+        self.btn_report.configure(font=app.f_small, state="disabled")
+        self.btn_report.pack(side="left")
         app._button(dol, app.t("drive_close"), self.zamknij).pack(
             side="right")
         self.btn_cancel = app._button(dol, app.t("gw_cancel"), self.przerwij)
@@ -156,26 +151,6 @@ class OpticalDialog(tk.Toplevel):
         self.protocol("WM_DELETE_WINDOW", self.zamknij)
         self.bind("<Escape>", lambda e: self.zamknij())
         self.odswiez_napedy()
-        self._dopasuj_do_ekranu()
-
-    def _dopasuj_do_ekranu(self) -> None:
-        """Skraca pole raportu, gdy okno nie miesci sie na ekranie."""
-        self.update_idletasks()
-        dostepne = self.winfo_screenheight() - 90
-        potrzeba = self.winfo_reqheight()
-        if potrzeba <= dostepne:
-            return
-        obecna = int(self.widok.cget("height"))
-        self.widok.configure(height=max(MIN_RAPORT,
-                                        obecna - (potrzeba - dostepne)))
-        self.update_idletasks()
-        # Na naprawde niskim ekranie samo skrocenie raportu nie wystarcza.
-        # Narzucamy wtedy wysokosc okna: raport ma wlasny przewijak, wiec
-        # traci widok, a nie tresc - w odroznieniu od przyciskow, ktore
-        # schowane za krawedzia ekranu przestaja istniec.
-        if self.winfo_reqheight() > dostepne:
-            self.geometry(f"{self.winfo_reqwidth()}x{dostepne}")
-            self.update_idletasks()
 
     # -- napedy ------------------------------------------------------------
 
@@ -225,8 +200,8 @@ class OpticalDialog(tk.Toplevel):
             state="normal" if gotowa and not zajety else "disabled")
         self.btn_refresh.configure(state="disabled" if zajety else "normal")
         self.btn_cancel.configure(state="normal" if zajety else "disabled")
-        self.btn_save.configure(
-            state="normal" if self.raport is not None and not zajety
+        self.btn_report.configure(
+            state="normal" if self._raport_tekst and not zajety
             else "disabled")
         self.spin_retries.configure(state="disabled" if zajety else "normal")
         for przycisk in self.drive_buttons.values():
@@ -365,6 +340,8 @@ class OpticalDialog(tk.Toplevel):
                 fg=GOOD if raport.complete else ALERT)
             self._pokaz(optical.opis_raportu(raport))
         self._odswiez_przyciski()
+        if self._raport_tekst and not self._zamknij_po:
+            self.pokaz_raport()
         if self._zamknij_po:
             self.destroy()
 
@@ -385,11 +362,27 @@ class OpticalDialog(tk.Toplevel):
 
     # -- raport -------------------------------------------------------------
 
-    def _pokaz(self, tekst: str) -> None:
-        self.widok.pokaz(tekst)
+    def pokaz_raport(self) -> None:
+        """Otwiera okno raportu albo podnosi juz otwarte."""
+        app = self.app
+        if self.okno_raportu is not None and self.okno_raportu.winfo_exists():
+            self.okno_raportu.deiconify()
+            self.okno_raportu.lift()
+        else:
+            self.okno_raportu = ReportWindow(
+                app, app.t("rpt_title", co=app.t("cd_title")),
+                _znajdz_ikone("jazwiec-cd.png"), "cdreportsize")
+            self.okno_raportu.on_save = self.zapisz_raport
+        self.okno_raportu.pokaz(self._raport_tekst)
 
-    def zapisz_raport(self) -> None:
-        if self.raport is None:
+    def _pokaz(self, tekst: str) -> None:
+        self._raport_tekst = tekst
+        if self.okno_raportu is not None and self.okno_raportu.winfo_exists():
+            self.okno_raportu.pokaz(tekst)
+
+    def zapisz_raport(self, tekst: str | None = None) -> None:
+        tekst = tekst if tekst is not None else self._raport_tekst
+        if not tekst:
             return
         app = self.app
         cel = filedialog.asksaveasfilename(
@@ -402,7 +395,7 @@ class OpticalDialog(tk.Toplevel):
             return
         try:
             with open(cel, "w", encoding="utf-8") as fh:
-                fh.write(optical.opis_raportu(self.raport) + "\n")
+                fh.write(tekst + "\n")
             hand_back(cel)
         except OSError as exc:
             messagebox.showerror(APP_NAME, str(exc), parent=self)

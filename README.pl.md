@@ -93,6 +93,17 @@ pozwala zgrać dyskietkę do obrazu, zapisać obraz na dyskietkę i ją
 sformatować, a raport pokazuje od razu u siebie. Wybrany napęd i format są
 zapamiętywane.
 
+### Raport w osobnym oknie
+
+Raport z odczytu, zapisu i formatowania otwiera się we własnym oknie —
+przyciskiem **Pokaż raport** albo sam, po zakończeniu pracy. Można je
+powiększyć, zmaksymalizować i zostawić obok okna operacji; rozmiar zostaje
+zapamiętany. Raport zapisuje się stamtąd do pliku `.txt`.
+
+Wcześniej raport siedział w oknie operacji i na niższym ekranie kurczył się
+do paska wysokości jednej linijki, bo jako jedyna rozciągliwa część oddawał
+miejsce przyciskom i mapom.
+
 ### Mapa ścieżek
 
 Zamiast paska postępu okno pokazuje mapę ścieżek: rząd na każdą stronę

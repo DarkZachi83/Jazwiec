@@ -2,6 +2,32 @@
 
 Numery wersji odpowiadają wartości `APP_VERSION` w `styles.py`.
 
+## 1.16
+
+- **Raport w osobnym oknie** — w oknie Greaseweazle i w oknie płyt.
+  Dotąd siedział w oknie operacji i jako jedyna rozciągliwa część oddawał
+  miejsce wszystkiemu innemu; na niższym ekranie kurczył się do paska
+  wysokości jednej linijki. Nowe okno można powiększyć, zmaksymalizować,
+  przenieść na drugi ekran i zostawić otwarte obok; jego rozmiar jest
+  zapamiętywany. Po zakończeniu pracy pokazuje się samo.
+- Okno operacji Greaseweazle zmalało z 990 do 785 pikseli, więc mieści się
+  bez żadnych sztuczek.
+- Usunięte zwijanie opisu, skracanie pola raportu i chowanie podpowiedzi
+  z wersji 1.15.1 i 1.15.2. Były podpórkami pod problem, który teraz
+  zniknął u źródła — a jedna z nich zachowywała się różnie na różnych
+  systemach i nie dało się tego powtórzyć u mnie.
+
+## 1.15.2
+
+- Okno Greaseweazle pozwala **zwinąć opis** i ścieżkę do narzędzia. Po
+  sprawdzeniu narzędzia nie są już potrzebne, a to one zabierały miejsce
+  raportowi — na ekranie 1080 zwinięcie powiększa raport ze 197 do 260
+  pikseli. Stan jest zapamiętywany. Zgłoszone przez testera.
+- Gdy miejsca nadal brakuje, ustępują kolejno napisy objaśniające, potem
+  legenda — a nigdy przyciski i mapa. Kolejność ustępstw jest tu regułą:
+  podpowiedź mówi to, co widać po chwili używania, a przycisk schowany za
+  krawędzią ekranu przestaje istnieć.
+
 ## 1.15.1
 
 - **Nazwy formatów w oknie Greaseweazle tłumaczą się.** W angielskim oknie

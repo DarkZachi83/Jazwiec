@@ -18,7 +18,7 @@ from tkinter import ttk
 from system import _znajdz_ikone
 
 APP_NAME = "RetroZachar - FFD Disk Maker - Jazwiec"
-APP_VERSION = "1.15.1"
+APP_VERSION = "1.16"
 
 
 # --------------------------------------------------------------------------
@@ -330,6 +330,88 @@ class ReportView(tk.Canvas):
             wysokosc = max(wysokosc, ramka[3] + zapas)
         self.configure(scrollregion=(0, 0, self.winfo_width(), wysokosc))
         self._tlo_na_miejsce()
+
+
+class ReportWindow(tk.Toplevel):
+    """
+    Raport w osobnym oknie: przewijalny, skalowalny, do zostawienia obok.
+
+    Wczesniej raport siedzial w oknie operacji i jako jedyna elastyczna
+    czesc oddawal miejsce wszystkiemu innemu - na nizszym ekranie kurczyl
+    sie do paska wysokosci jednej linijki. Proby ratowania tego skracaniem
+    pola i chowaniem podpowiedzi konczyly sie ukladem, ktory zachowywal sie
+    roznie na roznych systemach.
+
+    Osobne okno rozwiazuje to u zrodla: sterowanie ma swoj naturalny
+    rozmiar, a raport tyle miejsca, ile mu sie da - razem z mozliwoscia
+    powiekszenia i przeniesienia na drugi ekran.
+    """
+
+    def __init__(self, master, tytul: str, obrazek: str | None = None,
+                 klucz_rozmiaru: str = "reportsize"):
+        super().__init__(master, bg=SCREEN)
+        self.app = master
+        app = master
+        self._klucz = klucz_rozmiaru
+        self._tekst = ""
+
+        self.title(tytul)
+        self.configure(padx=10, pady=10)
+        self.transient(master)
+
+        panel = Panel(self, tytul, app.f_title)
+        panel.pack(fill="both", expand=True)
+        body = panel.body
+
+        pole = tk.Frame(body, bg=PANEL)
+        pole.pack(fill="both", expand=True)
+        self.widok = ReportView(pole, app.f_small, obrazek)
+        przewijak = ttk.Scrollbar(pole, orient="vertical",
+                                  command=self.widok.yview,
+                                  style="RZ.Vertical.TScrollbar")
+        self.widok.configure(yscrollcommand=przewijak.set)
+        przewijak.pack(side="right", fill="y")
+        self.widok.pack(side="left", fill="both", expand=True)
+
+        dol = tk.Frame(body, bg=PANEL)
+        dol.pack(fill="x", pady=(10, 0))
+        self.btn_save = app._button(dol, app.t("rpt_save"), self.zapisz)
+        self.btn_save.configure(font=app.f_small, state="disabled")
+        self.btn_save.pack(side="left")
+        app._button(dol, app.t("rpt_close"), self.destroy).pack(
+            side="right")
+
+        zapamietany = app.config_data.get(klucz_rozmiaru)
+        if zapamietany:
+            try:
+                self.geometry(zapamietany)
+            except tk.TclError:
+                pass
+        self.bind("<Configure>", self._zapamietaj_rozmiar)
+        self.bind("<Escape>", lambda e: self.destroy())
+        self.on_save = None
+
+    def _zapamietaj_rozmiar(self, zdarzenie=None) -> None:
+        """Rozmiar okna zostaje na nastepny raz - raport czyta sie dlugo."""
+        if zdarzenie is not None and zdarzenie.widget is not self:
+            return
+        rozmiar = f"{self.winfo_width()}x{self.winfo_height()}"
+        if self.app.config_data.get(self._klucz) != rozmiar:
+            self.app.config_data[self._klucz] = rozmiar
+            self.app._save_config()
+
+    def pokaz(self, tekst: str) -> None:
+        self._tekst = tekst
+        self.widok.pokaz(tekst)
+        self.btn_save.configure(state="normal" if tekst else "disabled")
+        self.lift()
+
+    def tekst(self) -> str:
+        return self._tekst
+
+    def zapisz(self) -> None:
+        if self.on_save is not None:
+            self.on_save(self._tekst)
 
 
 class StyleMixin:

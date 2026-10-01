@@ -92,6 +92,17 @@ the tool and the device, reads a floppy into an image, writes an image back
 and formats a disk, and shows the report in place. The chosen drive and
 format are remembered.
 
+### The report in its own window
+
+The report from a read, write or format opens in a window of its own —
+through the **Show report** button, or by itself once the job finishes. It
+can be enlarged, maximised and left open beside the operation window; its
+size is remembered. The report is saved to a `.txt` file from there.
+
+Previously the report lived inside the operation window and on a shorter
+screen shrank to a strip one line high, being the only stretchable part and
+so yielding its space to the buttons and maps.
+
 ### Track map
 
 Instead of a progress bar the window shows a track map: one row per disk

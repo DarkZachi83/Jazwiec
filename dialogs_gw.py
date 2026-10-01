@@ -22,14 +22,14 @@ from __future__ import annotations
 import os
 import threading
 import tkinter as tk
+from tkinter import filedialog, messagebox, simpledialog
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog, ttk
 from typing import TYPE_CHECKING
 
 import gwbridge
 from styles import (
     APP_NAME, SCREEN, PANEL, FRAME, TEXT, BRIGHT, ACCENT, HINT, ALERT,
-    GOOD, FIELD, ReportView,
+    GOOD, FIELD, ReportWindow,
     DIM, WARN, DRIVE, Panel,
 )
 from system import _real_home, _znajdz_ikone, hand_back, wzorzec_pliku
@@ -40,7 +40,6 @@ if TYPE_CHECKING:                  # tylko dla adnotacji - bez importu cykliczne
 ODPYTYWANIE_MS = 150
 
 # Ponizej tej wysokosci pole raportu przestaje byc czytelne.
-MIN_RAPORT = 120
 
 
 # Kolor kazdego stanu sciezki. Czerwony i purpurowy znacza co innego:
@@ -205,9 +204,13 @@ class GwDialog(tk.Toplevel):
         panel.pack(fill="both", expand=True)
         body = panel.body
 
-        tk.Label(body, text=app.t("gw_intro"), bg=PANEL, fg=HINT,
-                 font=app.f_small, justify="left", anchor="w",
-                 ).pack(fill="x", pady=(0, 8))
+        # Opis i sciezka do narzedzia sa potrzebne raz, przy pierwszym
+        # uruchomieniu. Zwijamy je, bo na niskim ekranie to wlasnie one
+        # zabieraja miejsce raportowi - zgloszenie od testera.
+        self.lbl_intro = tk.Label(body, text=app.t("gw_intro"), bg=PANEL,
+                                  fg=HINT, font=app.f_small, justify="left",
+                                  anchor="w")
+        self.lbl_intro.pack(fill="x", pady=(0, 8))
 
         # -- stan urzadzenia ------------------------------------------------
         wiersz = tk.Frame(body, bg=PANEL)
@@ -239,8 +242,10 @@ class GwDialog(tk.Toplevel):
         self.drive_buttons = app.radio_group(
             wiersz, self.var_drive, [(d, d) for d in gwbridge.DRIVES],
             side="left", padx=(0, 10))
-        tk.Label(body, text=app.t("gw_drive_hint"), bg=PANEL, fg=HINT,
-                 font=app.f_small, anchor="w").pack(fill="x", pady=(2, 8))
+        self.lbl_drive_hint = tk.Label(
+            body, text=app.t("gw_drive_hint"), bg=PANEL, fg=HINT,
+            font=app.f_small, anchor="w")
+        self.lbl_drive_hint.pack(fill="x", pady=(2, 8))
 
         # Liczba prob na sciezke. Dyskietka po latach w kopercie potrafi
         # przeczytac sie dopiero przy szostym podejsciu, bo wykladzina
@@ -259,8 +264,10 @@ class GwDialog(tk.Toplevel):
             insertbackground=BRIGHT, justify="right",
             highlightthickness=1, highlightbackground=FRAME)
         self.spin_retries.pack(side="left", padx=(8, 0))
-        tk.Label(wiersz, text=app.t("gw_retries_hint"), bg=PANEL, fg=HINT,
-                 font=app.f_small, anchor="w").pack(side="left", padx=(10, 0))
+        self.lbl_retries_hint = tk.Label(
+            wiersz, text=app.t("gw_retries_hint"), bg=PANEL, fg=HINT,
+            font=app.f_small, anchor="w")
+        self.lbl_retries_hint.pack(side="left", padx=(10, 0))
         tk.Frame(body, bg=PANEL, height=8).pack(fill="x")
 
         # Zakladka na kazda rodzine nosnikow. Bez podzialu lista formatow
@@ -335,6 +342,7 @@ class GwDialog(tk.Toplevel):
         self.lbl_zebrane.pack(fill="x")
 
         legenda = tk.Frame(body, bg=PANEL)
+        self.legenda = legenda
         legenda.pack(fill="x", pady=(2, 4))
         for stan in KOLORY_STANOW:
             tk.Frame(legenda, bg=KOLORY_STANOW[stan], width=10,
@@ -357,24 +365,18 @@ class GwDialog(tk.Toplevel):
                 wraplength=max(100, e.width)), add="+")
         self.var_format.trace_add("write", lambda *_: self._format_zmieniony())
 
-        # -- raport ---------------------------------------------------------
-        pole = tk.Frame(body, bg=PANEL)
-        pole.pack(fill="both", expand=True, pady=(8, 0))
-        self.widok = ReportView(pole, app.f_small,
-                                _znajdz_ikone("jazwiec-gw.png"))
-        przewijak = ttk.Scrollbar(pole, orient="vertical",
-                                  command=self.widok.yview,
-                                  style="RZ.Vertical.TScrollbar")
-        self.widok.configure(yscrollcommand=przewijak.set)
-        przewijak.pack(side="right", fill="y")
-        self.widok.pack(side="left", fill="both", expand=True)
+        # Raport mieszka w osobnym oknie. Wczesniej byl tutaj i jako
+        # jedyna elastyczna czesc oddawal miejsce wszystkiemu innemu -
+        # na nizszym ekranie kurczyl sie do paska wysokosci linijki.
+        self.okno_raportu = None
+        self._raport_tekst = ""
 
         dol = tk.Frame(body, bg=PANEL)
         dol.pack(fill="x", pady=(10, 0))
-        self.btn_save = app._button(dol, app.t("gw_save_report"),
-                                    self.zapisz_raport)
-        self.btn_save.configure(font=app.f_small, state="disabled")
-        self.btn_save.pack(side="left")
+        self.btn_report = app._button(dol, app.t("rpt_show"),
+                                      self.pokaz_raport)
+        self.btn_report.configure(font=app.f_small, state="disabled")
+        self.btn_report.pack(side="left")
         app._button(dol, app.t("drive_close"), self.zamknij).pack(
             side="right")
         self.btn_cancel = app._button(dol, app.t("gw_cancel"),
@@ -389,34 +391,7 @@ class GwDialog(tk.Toplevel):
         # zwezeniu mapa zawinelaby sie i stracila uklad kolumn.
         self.update_idletasks()
         self.minsize(self.winfo_reqwidth(), 1)
-        self._dopasuj_do_ekranu()
         self.sprawdz_urzadzenie()
-
-    def _dopasuj_do_ekranu(self) -> None:
-        """
-        Skraca pole raportu, gdy okno nie miesci sie na ekranie.
-
-        Zgloszenie z uzytkowania: na nizszym ekranie dolna czesc okna
-        chowala sie za paskiem zadan i raportu nie bylo widac wcale.
-        Wysokosc pola jest jedyna rzecza, ktora mozna tu oddac bez straty -
-        reszta to przyciski i opisy potrzebne do pracy.
-        """
-        self.update_idletasks()
-        dostepne = self.winfo_screenheight() - 90   # pasek zadan i ramka
-        potrzeba = self.winfo_reqheight()
-        if potrzeba <= dostepne:
-            return
-        obecna = int(self.widok.cget("height"))
-        self.widok.configure(height=max(MIN_RAPORT,
-                                        obecna - (potrzeba - dostepne)))
-        self.update_idletasks()
-        # Na naprawde niskim ekranie samo skrocenie raportu nie wystarcza.
-        # Narzucamy wtedy wysokosc okna: raport ma wlasny przewijak, wiec
-        # traci widok, a nie tresc - w odroznieniu od przyciskow, ktore
-        # schowane za krawedzia ekranu przestaja istniec.
-        if self.winfo_reqheight() > dostepne:
-            self.geometry(f"{self.winfo_reqwidth()}x{dostepne}")
-            self.update_idletasks()
 
     # -- urzadzenie --------------------------------------------------------
 
@@ -512,8 +487,8 @@ class GwDialog(tk.Toplevel):
         for przycisk in (self.btn_recheck, self.btn_tool):
             przycisk.configure(state="disabled" if zajety else "normal")
         self.btn_cancel.configure(state="normal" if zajety else "disabled")
-        self.btn_save.configure(
-            state="normal" if self.raport is not None and not zajety
+        self.btn_report.configure(
+            state="normal" if self._raport_tekst and not zajety
             else "disabled")
         self.spin_retries.configure(state="disabled" if zajety else "normal")
         for grupa in (self.drive_buttons, self.format_buttons):
@@ -810,6 +785,10 @@ class GwDialog(tk.Toplevel):
                 text=self.app.t("gw_done"), fg=GOOD if dobrze else ALERT)
             self._pokaz(raport.text())
         self._odswiez_przyciski()
+        # Raport sam wychodzi na wierzch po zakonczeniu pracy - tak bylo,
+        # gdy siedzial w tym oknie, i tak ma zostac.
+        if self._raport_tekst and not self._zamknij_po:
+            self.pokaz_raport()
 
         if self._zamknij_po:
             self.destroy()
@@ -950,11 +929,33 @@ class GwDialog(tk.Toplevel):
 
     # -- raport ------------------------------------------------------------
 
-    def _pokaz(self, tekst: str) -> None:
-        self.widok.pokaz(tekst)
+    def pokaz_raport(self) -> None:
+        """Otwiera okno raportu albo podnosi juz otwarte."""
+        if self.okno_raportu is not None and self.okno_raportu.winfo_exists():
+            self.okno_raportu.deiconify()
+            self.okno_raportu.lift()
+        else:
+            self.okno_raportu = ReportWindow(
+                self.app, self.app.t("rpt_title", co=self.app.t("gw_title")),
+                _znajdz_ikone("jazwiec-gw.png"), "gwreportsize")
+            self.okno_raportu.on_save = self.zapisz_raport
+        self.okno_raportu.pokaz(self._raport_tekst)
 
-    def zapisz_raport(self) -> None:
-        if self.raport is None:
+    def _pokaz(self, tekst: str) -> None:
+        """
+        Zapamietuje raport i pokazuje go, jesli okno raportu jest otwarte.
+
+        Nie otwieramy go sami przy kazdej drobnej zmianie - raport ma sie
+        pojawiac wtedy, gdy uzytkownik o niego poprosi albo gdy operacja
+        dobiegnie konca.
+        """
+        self._raport_tekst = tekst
+        if self.okno_raportu is not None and self.okno_raportu.winfo_exists():
+            self.okno_raportu.pokaz(tekst)
+    def zapisz_raport(self, tekst: str | None = None) -> None:
+        """Zapis raportu do pliku - wolany z okna raportu albo wprost."""
+        tekst = tekst if tekst is not None else self._raport_tekst
+        if not tekst:
             return
         app = self.app
         cel = filedialog.asksaveasfilename(
@@ -968,7 +969,7 @@ class GwDialog(tk.Toplevel):
         self._zapamietaj_katalog(cel)
         try:
             with open(cel, "w", encoding="utf-8") as fh:
-                fh.write(self.raport.text() + "\n")
+                fh.write(tekst + "\n")
             hand_back(cel)
         except OSError as exc:
             messagebox.showerror(APP_NAME, str(exc), parent=self)

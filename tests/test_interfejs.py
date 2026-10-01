@@ -344,6 +344,20 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
             time.sleep(0.02)
         return False
 
+    def raport_okna(self, okno):
+        """
+        Okno raportu danego okna operacji.
+
+        Raport ma od wersji 1.16 wlasne okno: sterowanie ma swoj naturalny
+        rozmiar, a raport tyle miejsca, ile mu sie da. Testy siegaja po nie
+        tak samo jak uzytkownik - przyciskiem.
+        """
+        okno.pokaz_raport()
+        self.app.update()
+        self.addCleanup(lambda: okno.okno_raportu.winfo_exists()
+                        and okno.okno_raportu.destroy())
+        return okno.okno_raportu
+
     def otworz(self):
         self.app.open_gw_panel()
         okno = self.app._gw_window
@@ -371,10 +385,10 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
         self.assertTrue(self.czekaj(lambda: okno.worker is None))
 
         self.assertEqual(os.path.getsize(cel), 1474560)
-        raport = okno.widok.tekst()
+        raport = self.raport_okna(okno).tekst()
         self.assertIn("C1 H1", raport)
         self.assertEqual(okno.raport.bad_sectors, list(range(54, 72)))
-        self.assertEqual(okno.btn_save.cget("state"), "normal")
+        self.assertEqual(okno.btn_report.cget("state"), "normal")
         self.assertEqual(okno.btn_read.cget("state"), "normal")
 
     def test_wyrozniony_jest_przycisk_trwajacej_operacji(self):
@@ -863,23 +877,60 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
         self.assertEqual(nowe_okno._katalog_startowy(), katalog,
                          "po ponownym otwarciu okna tez")
 
-    def test_okno_miesci_sie_na_niskim_ekranie(self):
+    def test_raport_w_osobnym_oknie(self):
         """
-        Zgloszenie od testera: dolna czesc okna chowala sie za paskiem
-        zadan i raportu nie bylo widac wcale. Przyciski musza zostac
-        w zasiegu, bo schowane za krawedzia przestaja istniec - raport
-        ma wlasny przewijak, wiec traci widok, a nie tresc.
+        Raport mieszkal w oknie operacji i jako jedyna elastyczna czesc
+        oddawal miejsce wszystkiemu innemu - na nizszym ekranie kurczyl sie
+        do paska wysokosci linijki. Od 1.16 ma wlasne okno, wiec okno
+        operacji ma staly, sensowny rozmiar.
         """
         podstaw_gw(self)
         okno = self.otworz()
-        wysokosc = okno.winfo_screenheight()
-        self.assertLessEqual(okno.winfo_height(), wysokosc,
-                             "okno nie moze byc wyzsze od ekranu")
-        dol = okno.btn_read.winfo_rooty() + okno.btn_read.winfo_height()
-        self.assertLessEqual(dol, wysokosc,
-                             "przyciski maja zostac w zasiegu")
-        self.assertGreaterEqual(int(okno.widok.cget("height")), 120,
-                                "raport ponizej tej wysokosci jest bezuzyteczny")
+        self.assertFalse(hasattr(okno, "widok"),
+                         "raportu nie ma juz w oknie operacji")
+        self.assertEqual(okno.btn_report.cget("state"), "disabled",
+                         "bez raportu nie ma czego pokazywac")
+        okno._pokaz("tresc raportu")
+        okno._odswiez_przyciski()
+        self.assertEqual(okno.btn_report.cget("state"), "normal")
+        raport = self.raport_okna(okno)
+        self.assertIn("tresc raportu", raport.tekst())
+        self.assertIsNot(raport, okno, "to ma byc osobne okno")
+
+    def test_okno_raportu_pamieta_rozmiar(self):
+        podstaw_gw(self)
+        okno = self.otworz()
+        okno._pokaz("cokolwiek")
+        raport = self.raport_okna(okno)
+        raport.geometry("640x480")
+        self.app.update()
+        raport._zapamietaj_rozmiar()
+        self.assertEqual(self.app.config_data["gwreportsize"], "640x480")
+
+    def test_ponowne_otwarcie_podnosi_to_samo_okno(self):
+        """Dwa okna raportu naraz tylko myla, ktore jest aktualne."""
+        podstaw_gw(self)
+        okno = self.otworz()
+        okno._pokaz("pierwszy")
+        pierwsze = self.raport_okna(okno)
+        okno.pokaz_raport()
+        self.app.update()
+        self.assertIs(okno.okno_raportu, pierwsze)
+
+    def test_zapis_raportu_z_okna_raportu(self):
+        import tkinter.filedialog as fd
+        podstaw_gw(self)
+        cel = self.sciezka("raport.txt")
+        stare_okno = fd.asksaveasfilename
+        fd.asksaveasfilename = lambda **k: cel
+        self.addCleanup(setattr, fd, "asksaveasfilename", stare_okno)
+        okno = self.otworz()
+        okno._pokaz("tresc do zapisania")
+        raport = self.raport_okna(okno)
+        raport.zapisz()
+        self.app.update()
+        with open(cel, encoding="utf-8") as fh:
+            self.assertIn("tresc do zapisania", fh.read())
 
     def test_nazwy_formatow_w_jezyku_okna(self):
         import gwbridge
@@ -965,7 +1016,7 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
 
     def test_raport_na_tle_obrazu(self):
         okno = self.odczytaj(self.probki.pelny_odczyt({(1, 1)}))
-        widok = okno.widok
+        widok = self.raport_okna(okno).widok
         self.assertIsNotNone(widok._tlo, "obraz tla ma byc wczytany")
         self.assertEqual(widok.tekst(), okno.raport.text())
         bloki = [e for e, _ in widok._bloki]
@@ -980,7 +1031,7 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
         i skok na koniec (yview_moveto). Tlo ma stac przy kazdej z nich.
         """
         okno = self.odczytaj(self.probki.pelny_odczyt({(1, 1)}))
-        widok = okno.widok
+        widok = self.raport_okna(okno).widok
         drogi = {
             "pasek przewijania": lambda: widok.yview("scroll", 4, "units"),
             "kolko myszy": lambda: widok.yview_scroll(3, "units"),
@@ -1004,7 +1055,7 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
         wtopionym w obraz tytulem, a nie na nim.
         """
         okno = self.odczytaj(self.probki.pelny_odczyt({(1, 1)}))
-        widok = okno.widok
+        widok = self.raport_okna(okno).widok
         widok.yview_moveto(1.0)
         self.app.update()
         dol_tekstu = widok.bbox(widok._elementy[-1])[3]
@@ -1022,7 +1073,7 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
         dlugi = self.sciezka("bardzo " * 12 + "dluga sciezka")
         os.makedirs(dlugi)
         okno = self.odczytaj(self.probki.pelny_odczyt({(1, 1)}))
-        widok = okno.widok
+        widok = self.raport_okna(okno).widok
         widok.pokaz(okno.raport.text().replace(
             okno.raport.image_path, os.path.join(dlugi, "obraz.img")))
         self.app.update()
@@ -1110,7 +1161,7 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
         self.assertTrue(self.czekaj(lambda: okno.worker is None))
         self.assertEqual(okno.raport.diagnosis, "format_ok")
 
-        widok = okno.widok
+        widok = self.raport_okna(okno).widok
         mapa = [e for e, m in widok._bloki if m]
         self.assertTrue(mapa, "mapa sciezek ma byc osobnym blokiem")
         self.assertEqual(int(widok.itemcget(mapa[1], "width")), 0)
@@ -1118,7 +1169,7 @@ class OknoGreaseweazle(PrzypadekZKatalogiem):
 
     def test_mapa_sektorow_sie_nie_zawija(self):
         okno = self.odczytaj(self.probki.pelny_odczyt({(1, 1)}))
-        widok = okno.widok
+        widok = self.raport_okna(okno).widok
         mapa = [e for e, m in widok._bloki if m]
         self.assertTrue(mapa, "raport z odczytu ma zawierac mape")
         self.assertEqual(int(widok.itemcget(mapa[1], "width")), 0)
@@ -1210,10 +1261,10 @@ class RaportBezObrazu(CzystyStart):
 
     def test_raport_bez_tla(self):
         import tkinter as tk
-        import dialogs_gw
+        import styles
         okno = tk.Tk()
         self.addCleanup(okno.destroy)
-        widok = dialogs_gw.ReportView(okno, ("TkFixedFont", 9), None)
+        widok = styles.ReportView(okno, ("TkFixedFont", 9), None)
         widok.pack(fill="both", expand=True)
         okno.update()
         widok.pokaz("linia 1\nlinia 2")
@@ -1637,6 +1688,13 @@ class OknoPlyt(PrzypadekZKatalogiem):
             time.sleep(0.02)
         return False
 
+    def raport_okna(self, okno):
+        okno.pokaz_raport()
+        self.app.update()
+        self.addCleanup(lambda: okno.okno_raportu.winfo_exists()
+                        and okno.okno_raportu.destroy())
+        return okno.okno_raportu
+
     def otworz(self):
         self.app.open_optical_panel()
         okno = self.app._optical_window
@@ -1676,8 +1734,8 @@ class OknoPlyt(PrzypadekZKatalogiem):
         self.assertEqual(os.path.getsize(cel), 300 * self.optical.SEKTOR)
         with open(self.plyta, "rb") as a, open(cel, "rb") as b:
             self.assertEqual(a.read(), b.read())
-        self.assertIn("Rozpoznanie", okno.widok.tekst())
-        self.assertEqual(okno.btn_save.cget("state"), "normal")
+        self.assertIn("Rozpoznanie", self.raport_okna(okno).tekst())
+        self.assertEqual(okno.btn_report.cget("state"), "normal")
 
     def test_plyta_audio_nie_da_sie_zgrac(self):
         """
