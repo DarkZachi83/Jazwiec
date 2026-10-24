@@ -2,6 +2,8 @@
 
 *[English version of this file](README.md)*
 
+![Jazwiec - borsuk z dyskietka 5,25 cala w pokoju pelnym starych komputerow](docs/banner.jpg)
+
 Tworzenie i edycja obrazów dyskietek FAT12 dla emulatorów 86Box, PCem i DOSBox.
 Program jest pythonową wersją skryptu powłoki, ale bez jego dwóch ograniczeń:
 nie wywołuje `mkfs.fat` i nie montuje niczego w systemie, więc działa tak samo

@@ -2,6 +2,8 @@
 
 *[Polska wersja tego pliku](README.pl.md)*
 
+![Jazwiec - a badger holding a 5.25-inch floppy disk in a retro computer room](docs/banner.jpg)
+
 Create and edit FAT12 floppy images for the 86Box, PCem and DOSBox emulators.
 The program is a Python rewrite of a shell script, but without its two
 limitations: it never calls `mkfs.fat` and never mounts anything, so it
