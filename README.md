@@ -2,6 +2,8 @@
 
 *[Polska wersja tego pliku](README.pl.md)*
 
+[![GitHub stars](https://img.shields.io/github/stars/DarkZachi83/Jazwiec?style=flat&label=stars&color=blue)](https://github.com/DarkZachi83/Jazwiec)
+
 ![Jazwiec - a badger holding a 5.25-inch floppy disk in a retro computer room](docs/banner.jpg)
 
 Create and edit FAT12 floppy images for the 86Box, PCem and DOSBox emulators.

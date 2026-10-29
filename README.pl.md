@@ -2,6 +2,8 @@
 
 *[English version of this file](README.md)*
 
+[![Gwiazdki na GitHubie](https://img.shields.io/github/stars/DarkZachi83/Jazwiec?style=flat&label=gwiazdki&color=blue)](https://github.com/DarkZachi83/Jazwiec)
+
 ![Jaźwiec — borsuk z dyskietką 5,25 cala w pokoju pełnym starych komputerów](docs/banner.jpg)
 
 Tworzenie i edycja obrazów dyskietek FAT12 dla emulatorów 86Box, PCem i DOSBox.
