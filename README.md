@@ -1054,3 +1054,8 @@ that testing rather than from theory.
 MIT — see [LICENSE](LICENSE).
 
 Copyright (c) 2026 Rafał Zacharski (Retro Zachar)
+
+## Like the program?
+
+Leave a star on [the project page](https://github.com/DarkZachi83/Jazwiec).
+It means a lot to the author, and it is what keeps the next projects coming.

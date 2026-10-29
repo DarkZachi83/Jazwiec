@@ -2,7 +2,7 @@
 
 *[English version of this file](README.md)*
 
-![Jazwiec - borsuk z dyskietka 5,25 cala w pokoju pelnym starych komputerow](docs/banner.jpg)
+![Jaźwiec — borsuk z dyskietką 5,25 cala w pokoju pełnym starych komputerów](docs/banner.jpg)
 
 Tworzenie i edycja obrazów dyskietek FAT12 dla emulatorów 86Box, PCem i DOSBox.
 Program jest pythonową wersją skryptu powłoki, ale bez jego dwóch ograniczeń:
@@ -1042,3 +1042,8 @@ podczas tych testów, a nie z teorii.
 MIT — zobacz [LICENSE](LICENSE).
 
 Copyright (c) 2026 Rafał Zacharski (Retro Zachar)
+
+## Podoba się program?
+
+Zostaw gwiazdkę na [stronie projektu](https://github.com/DarkZachi83/Jazwiec).
+Znaczy to wiele dla autora i daje mobilizację do kolejnych projektów.
